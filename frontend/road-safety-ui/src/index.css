@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #27272a;
+  /* Lighter zinc-800 */
+  --color-foreground: #fafafa;
+  --color-muted: #3f3f46;
+  --color-muted-foreground: #d4d4d8;
+  --color-popover: #27272a;
+  --color-popover-foreground: #fafafa;
+  --color-card: #27272a;
+  --color-card-foreground: #fafafa;
+  --color-border: #52525b;
+  --color-input: #52525b;
+  --color-primary: #fafafa;
+  --color-primary-foreground: #27272a;
+  --color-secondary: #3f3f46;
+  --color-secondary-foreground: #fafafa;
+  --color-accent: #3f3f46;
+  --color-accent-foreground: #fafafa;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #fafafa;
+  --color-ring: #fafafa;
+  --radius-md: 0.75rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: 'Inter', sans-serif;
+    /* Sophisticated dark grey gradient, notably lighter */
+    background: radial-gradient(circle at top, #3f3f46, #27272a 80%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+}
+
+/* Custom utilities for dark glassmorphism and animations */
+@utility glass {
+  background-color: rgba(9, 9, 11, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@utility glass-card {
+  background: linear-gradient(180deg, rgba(39, 39, 42, 0.3) 0%, rgba(24, 24, 27, 0.5) 100%);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 1rem;
+}
+
+@utility text-gradient {
+  background: linear-gradient(to right, #ffffff, #a1a1aa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+firebase-admin
+google-generativeai
+python-multipart
+requests
+python-dotenv
+pydantic-settings
+opencv-python
+numpy
+torch
+ultralytics
+pillow
+psutil
