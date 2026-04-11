@@ -44,7 +44,8 @@ def read_root():
     return {"status": "ok", "message": "Backend is running successfully!"}
 
 # Include routers
-from app.routes import video, user, report
+from app.routes import video, user, report, payment
 app.include_router(video.router, prefix="/api/video", tags=["Video"])
 app.include_router(user.router, prefix="/api/user", tags=["User"])
 app.include_router(report.router, prefix="/api/report", tags=["Report"])
+app.include_router(payment.router, prefix="/api/payment", tags=["Payment"])

@@ -12,3 +12,4 @@ torch
 ultralytics
 pillow
 psutil
+razorpay

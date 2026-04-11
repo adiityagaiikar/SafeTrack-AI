@@ -3,15 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Video, AlertTriangle, AlertOctagon, Timer, TrendingDown, ArrowUpRight } from "lucide-react";
+import { useIncidents } from "@/hooks/useIncidents";
 
 export default function Overview() {
-  const recentIncidents = [
-    { id: "INC-001", time: "10:24 AM", location: "Main St & 5th Ave", type: "Vehicle too close", severity: "Moderate" },
-    { id: "INC-002", time: "09:41 AM", location: "Highway 401 KM 23", type: "Collision Detected", severity: "Severe" },
-    { id: "INC-003", time: "08:15 AM", location: "Downtown Plaza", type: "Pedestrian near miss", severity: "Moderate" },
-    { id: "INC-004", time: "07:30 AM", location: "Elm St Intersection", type: "Speeding", severity: "Minor" },
-    { id: "INC-005", time: "06:55 AM", location: "Highway 401 KM 12", type: "Sudden Braking", severity: "Minor" },
-  ];
+  const { loading, error, metrics } = useIncidents("accidents");
+
+  const recentIncidents = metrics.recentIncidents;
+  const avgSeverityLabel = metrics.avgSeverity.toFixed(1);
+  const avgInferenceLabel = typeof metrics.avgInferenceMs === "number" ? `${metrics.avgInferenceMs.toFixed(1)}ms` : "N/A";
 
   const getSeverityBadge = (severity) => {
     switch (severity) {
@@ -41,7 +40,7 @@ export default function Overview() {
             </div>
           </CardHeader>
           <CardContent className="z-10 relative">
-            <div className="text-5xl font-black text-white tracking-tighter mb-2">24<span className="text-2xl text-zinc-600 font-medium">/24</span></div>
+            <div className="text-5xl font-black text-white tracking-tighter mb-2">{metrics.activeFeeds}<span className="text-2xl text-zinc-600 font-medium">/24</span></div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-green-500 mt-1 flex items-center gap-2 drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -60,9 +59,9 @@ export default function Overview() {
             </div>
           </CardHeader>
           <CardContent className="z-10 relative">
-            <div className="text-5xl font-black text-white tracking-tighter mb-2">3</div>
+            <div className="text-5xl font-black text-white tracking-tighter mb-2">{metrics.collisions24h}</div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-green-500 mt-1 flex items-center gap-1 drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]">
-              <TrendingDown className="h-3.5 w-3.5" /> 25% from yesterday
+              <TrendingDown className="h-3.5 w-3.5" /> Live from Firestore
             </p>
           </CardContent>
         </Card>
@@ -75,9 +74,9 @@ export default function Overview() {
             </div>
           </CardHeader>
           <CardContent className="z-10 relative">
-            <div className="text-5xl font-black text-orange-400 tracking-tighter mb-2 drop-shadow-[0_0_15px_rgba(249,115,22,0.2)]">4.2</div>
+            <div className="text-5xl font-black text-orange-400 tracking-tighter mb-2 drop-shadow-[0_0_15px_rgba(249,115,22,0.2)]">{avgSeverityLabel}</div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mt-1 flex items-center gap-1">
-              Moderate Risk Index
+              Computed Severity Index
             </p>
           </CardContent>
         </Card>
@@ -90,16 +89,16 @@ export default function Overview() {
             </div>
           </CardHeader>
           <CardContent className="z-10 relative">
-            <div className="text-5xl font-black text-white tracking-tighter mb-2">12<span className="text-2xl text-zinc-600 font-medium">ms</span></div>
+            <div className="text-5xl font-black text-white tracking-tighter mb-2">{avgInferenceLabel}</div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mt-1 flex items-center gap-1">
-              YOLOv8 Edge Device
+              Average Inference
             </p>
           </CardContent>
         </Card>
       </div>
 
       <Card className="glass-card border-none shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+        <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-white/20 to-transparent"></div>
         <CardHeader className="border-b border-white/5 pb-5 pt-7 px-8 bg-black/40 backdrop-blur-md">
           <div className="flex items-center justify-between">
             <CardTitle className="text-xl font-extrabold text-white tracking-tight">Recent Validated Detections</CardTitle>
@@ -109,10 +108,16 @@ export default function Overview() {
           </div>
         </CardHeader>
         <CardContent className="p-0 bg-black/20 backdrop-blur-sm">
+          {loading && <div className="px-8 py-5 text-sm text-zinc-400">Loading live incident metrics...</div>}
+          {error && (
+            <div className="mx-8 my-5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              Database connection failed: {error}
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow className="border-white/5 hover:bg-transparent">
-                <TableHead className="w-[120px] font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Audit ID</TableHead>
+                <TableHead className="w-30 font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Audit ID</TableHead>
                 <TableHead className="font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Timestamp</TableHead>
                 <TableHead className="font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Geo-Location</TableHead>
                 <TableHead className="font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Classification</TableHead>
@@ -120,15 +125,23 @@ export default function Overview() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {recentIncidents.map((incident) => (
-                <TableRow key={incident.id} className="border-white/5 hover:bg-white/5 transition-colors group cursor-pointer">
-                  <TableCell className="font-bold text-white px-8 py-4 font-mono text-sm">{incident.id}</TableCell>
-                  <TableCell className="font-semibold text-zinc-400 px-8 py-4">{incident.time}</TableCell>
-                  <TableCell className="font-medium text-zinc-300 px-8 py-4">{incident.location}</TableCell>
-                  <TableCell className="font-medium text-zinc-300 px-8 py-4">{incident.type}</TableCell>
-                  <TableCell className="text-right px-8 py-4">{getSeverityBadge(incident.severity)}</TableCell>
+              {recentIncidents.length > 0 ? (
+                recentIncidents.map((incident) => (
+                  <TableRow key={incident.id} className="border-white/5 hover:bg-white/5 transition-colors group cursor-pointer">
+                    <TableCell className="font-bold text-white px-8 py-4 font-mono text-sm">{incident.id}</TableCell>
+                    <TableCell className="font-semibold text-zinc-400 px-8 py-4">{incident.time}</TableCell>
+                    <TableCell className="font-medium text-zinc-300 px-8 py-4">{incident.location}</TableCell>
+                    <TableCell className="font-medium text-zinc-300 px-8 py-4">{incident.type}</TableCell>
+                    <TableCell className="text-right px-8 py-4">{getSeverityBadge(incident.severity)}</TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-24 text-center text-zinc-500">
+                    No incidents available yet.
+                  </TableCell>
                 </TableRow>
-              ))}
+              )}
             </TableBody>
           </Table>
         </CardContent>

@@ -157,13 +157,35 @@ const Billing = () => {
         description: `${plan.name} — ${plan.price}/month`,
         image: '', // replace with your hosted logo URL
 
-        handler(response) {
-          showToast(
-            'success',
-            `Payment captured! Your ${planType} plan will be activated automatically via webhook in a few seconds. (Ref: ${response.razorpay_payment_id})`
-          );
-          // Give the webhook ~5 s to process, then reload to reflect new plan
-          setTimeout(() => window.location.reload(), 6000);
+        async handler(response) {
+          try {
+            const verifyHeaders = { 'Content-Type': 'application/json' };
+            if (token) verifyHeaders.Authorization = `Bearer ${token}`;
+
+            const verifyResponse = await fetch(`${apiBaseUrl}/api/payment/verify`, {
+              method: 'POST',
+              headers: verifyHeaders,
+              body: JSON.stringify({
+                plan_type: planType,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+
+            if (!verifyResponse.ok) {
+              const err = await verifyResponse.json().catch(() => ({}));
+              throw new Error(err.detail || 'Payment verification failed');
+            }
+
+            showToast(
+              'success',
+              `Payment verified! Your ${planType} plan is now active. (Ref: ${response.razorpay_payment_id})`
+            );
+            setTimeout(() => window.location.reload(), 2500);
+          } catch (verificationError) {
+            showToast('error', verificationError.message);
+          }
         },
 
         modal: {

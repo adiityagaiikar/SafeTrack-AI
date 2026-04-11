@@ -2,46 +2,143 @@ import React, { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Video, ShieldAlert, Zap, Radio, Scan } from "lucide-react";
+import { ShieldAlert, Zap, Radio, Scan } from "lucide-react";
 
 export default function LiveStream() {
   const [logs, setLogs] = useState([]);
-  const [detections, setDetections] = useState([]);
-  const [riskAssessment, setRiskAssessment] = useState(null);
+  const [telemetry, setTelemetry] = useState({});
+  const [annotatedFrame, setAnnotatedFrame] = useState("");
+  const [wsStatus, setWsStatus] = useState("connecting");
+  const [streamError, setStreamError] = useState("");
   const ws = useRef(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const intervalRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+
+  const addLog = (msg, type = "info") => {
+    setLogs((prev) => {
+      const next = [
+        ...prev,
+        { time: new Date().toLocaleTimeString("en-US", { hour12: false }), msg, type },
+      ];
+      return next.slice(-40);
+    });
+  };
+
+  const buildWsUrl = () => {
+    const base = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    const parsed = new URL(base);
+    const protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${parsed.host}/ws/live-feed`;
+  };
+
+  const drawAndSendFrame = () => {
+    const socket = ws.current;
+    const videoEl = videoRef.current;
+    const canvasEl = canvasRef.current;
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!videoEl || !canvasEl || videoEl.readyState < 2) return;
+
+    const width = 640;
+    const height = 360;
+    canvasEl.width = width;
+    canvasEl.height = height;
+
+    const context = canvasEl.getContext("2d");
+    context.drawImage(videoEl, 0, 0, width, height);
+
+    const frame = canvasEl.toDataURL("image/jpeg", 0.72);
+    socket.send(JSON.stringify({ type: "frame", frame }));
+  };
 
   useEffect(() => {
-    // Initiate WebSocket Connection to FastAPI Engine
-    ws.current = new WebSocket("ws://localhost:8000/api/detection/ws");
+    let unmounted = false;
 
-    ws.current.onopen = () => {
-      setLogs((prev) => [...prev, { time: new Date().toLocaleTimeString('en-US', { hour12: false }), msg: "WebSocket Connection Established. Initializing DeepSORT...", type: "system" }]);
-      // Send a dummy frame trigger to kick off inference (the backend is expecting string)
-      ws.current.send("START_INFERENCE");
-    };
+    const init = async () => {
+      try {
+        setWsStatus("connecting");
+        addLog("Connecting to secure WebSocket...", "system");
 
-    ws.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setDetections(data.detections || []);
-      setRiskAssessment(data.risk_assessment || null);
-
-      if (data.risk_assessment && data.risk_assessment.warning !== "None") {
-        setLogs((prev) => {
-          const newLogs = [...prev, { time: new Date().toLocaleTimeString('en-US', { hour12: false }), msg: `🚨 ${data.risk_assessment.warning} (TTC: ${data.risk_assessment.ttc}s)`, type: "danger" }];
-          return newLogs.slice(-15); // Keep last 15 logs
+        const mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "environment" },
+          audio: false,
         });
-      }
 
-      // Request next frame inference simulating video loop
-      setTimeout(() => {
-        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-          ws.current.send("NEXT_FRAME");
+        if (unmounted) return;
+
+        mediaStreamRef.current = mediaStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          await videoRef.current.play();
         }
-      }, 500);
+        addLog("Camera stream active.", "success");
+
+        const socket = new WebSocket(buildWsUrl());
+        ws.current = socket;
+
+        socket.onopen = () => {
+          setWsStatus("connected");
+          addLog("WebSocket connected. Streaming frames at ~12 FPS.", "success");
+
+          intervalRef.current = setInterval(drawAndSendFrame, 83);
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            setTelemetry(data?.telemetry || data?.metrics || data || {});
+
+            const incomingFrame = data?.annotated_frame || data?.frame || data?.image || "";
+            if (incomingFrame) {
+              const normalized = incomingFrame.startsWith("data:image")
+                ? incomingFrame
+                : `data:image/jpeg;base64,${incomingFrame}`;
+              setAnnotatedFrame(normalized);
+            }
+          } catch {
+            addLog("Received non-JSON websocket payload.", "warning");
+          }
+        };
+
+        socket.onerror = () => {
+          setWsStatus("error");
+          setStreamError("WebSocket connection failed.");
+          addLog("WebSocket error. Unable to reach live-feed endpoint.", "danger");
+        };
+
+        socket.onclose = () => {
+          setWsStatus((prev) => (prev === "error" ? prev : "disconnected"));
+          addLog("WebSocket disconnected.", "warning");
+        };
+      } catch (error) {
+        const message = error?.name === "NotAllowedError"
+          ? "Camera access denied. Please allow camera permissions."
+          : error?.message || "Failed to initialize live stream.";
+
+        setStreamError(message);
+        setWsStatus("error");
+        addLog(message, "danger");
+      }
     };
+
+    init();
 
     return () => {
-      if (ws.current) ws.current.close();
+      unmounted = true;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      if (ws.current) {
+        ws.current.close();
+        ws.current = null;
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
     };
   }, []);
 
@@ -65,7 +162,7 @@ export default function LiveStream() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1 min-h-[500px]">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1 min-h-125">
 
         {/* Main Video Area */}
         <div className="lg:col-span-3 flex flex-col h-full">
@@ -73,31 +170,7 @@ export default function LiveStream() {
             <div className="bg-[#050505] flex-1 relative flex items-center justify-center overflow-hidden m-1.5 rounded-[0.8rem] border border-white/5">
 
               {/* Decorative grid overlay for "tech" feel */}
-              <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none mix-blend-overlay"></div>
-
-              {/* Dynamic Bounding Boxes from WebSocket */}
-              {detections.map((det, idx) => {
-                const colorClass = det.class === 'person' ? 'orange' : 'green';
-
-                return (
-                  <div key={idx} className={`absolute top-[${det.bbox[1]}px] left-[${det.bbox[0]}px] w-48 h-32 border-[1.5px] border-${colorClass}-500 bg-${colorClass}-500/10 flex items-start pointer-events-none transition-all duration-300 ease-out shadow-[0_0_30px_rgba(34,197,94,0.15)]`}
-                    style={{ top: `${det.bbox[1] / 6}%`, left: `${det.bbox[0] / 6}%` }}>
-                    <div className={`bg-${colorClass}-500 text-black font-mono text-[10px] font-bold px-1.5 py-0.5 shadow-[0_0_15px_rgba(34,197,94,0.8)] uppercase`}>
-                      {det.class} {det.confidence}
-                    </div>
-                    {det.class === 'car' && riskAssessment && riskAssessment.warning !== 'None' && (
-                      <div className="absolute -bottom-7 w-full text-center">
-                        <span className="bg-black text-red-400 text-[10px] font-mono font-bold px-2 py-1 rounded backdrop-blur-md border border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.3)]">TTC: {riskAssessment.ttc}s</span>
-                      </div>
-                    )}
-                    {/* Crosshairs */}
-                    <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-white drop-shadow-[0_0_2px_rgba(255,255,255,1)]"></div>
-                    <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-white drop-shadow-[0_0_2px_rgba(255,255,255,1)]"></div>
-                    <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-white drop-shadow-[0_0_2px_rgba(255,255,255,1)]"></div>
-                    <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-white drop-shadow-[0_0_2px_rgba(255,255,255,1)]"></div>
-                  </div>
-                );
-              })}
+              <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-size-[40px_40px] pointer-events-none mix-blend-overlay"></div>
 
               {/* Watermark/Status */}
               <div className="absolute top-6 left-6 flex gap-3 z-10">
@@ -111,24 +184,35 @@ export default function LiveStream() {
 
               <div className="absolute top-6 right-6 z-10">
                 <Badge variant="secondary" className="bg-black/60 text-green-400 border border-green-500/30 backdrop-blur-xl font-mono flex gap-1.5 px-3 py-1.5 shadow-[0_0_20px_rgba(34,197,94,0.2)] font-bold text-xs">
-                  <Zap className="w-3.5 h-3.5" /> 59.9 FPS
+                  <Zap className="w-3.5 h-3.5" /> {wsStatus === "connected" ? "~12 FPS" : "-- FPS"}
                 </Badge>
               </div>
 
-              {/* Center Placeholder Text */}
-              <div className="flex flex-col items-center justify-center opacity-30 select-none">
-                <Scan className="w-24 h-24 text-zinc-600 mb-6 animate-[spin_12s_linear_infinite]" />
-                <span className="text-zinc-500 text-sm font-black tracking-[0.5em] uppercase bg-black/50 px-6 py-2 rounded-full border border-white/5 backdrop-blur-md">Tactical Feed</span>
-              </div>
+              <video ref={videoRef} muted playsInline className="h-full w-full object-cover" />
+              <canvas ref={canvasRef} className="hidden" />
+
+              {annotatedFrame && (
+                <img src={annotatedFrame} alt="Annotated live feed" className="absolute inset-0 h-full w-full object-cover" />
+              )}
+
+              {wsStatus !== "connected" && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+                  <Scan className="w-16 h-16 text-zinc-500 mb-4 animate-[spin_12s_linear_infinite]" />
+                  <p className="text-sm font-bold tracking-widest uppercase text-zinc-300">
+                    {wsStatus === "connecting" ? "Connecting to Secure WebSocket..." : "Stream Offline"}
+                  </p>
+                  {streamError && <p className="mt-2 text-xs text-red-300">{streamError}</p>}
+                </div>
+              )}
 
             </div>
           </Card>
         </div>
 
         {/* Side Panel: AI Assistant Logs */}
-        <div className="lg:col-span-1 h-full min-h-[400px]">
+        <div className="lg:col-span-1 h-full min-h-100">
           <Card className="h-full flex flex-col glass-card border-none shadow-2xl overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-zinc-500 to-transparent"></div>
+            <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-zinc-500 to-transparent"></div>
             <div className="px-5 py-5 border-b border-white/10 flex items-center justify-between bg-black/40 backdrop-blur-md z-10">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-white/5 rounded-lg border border-white/10 shadow-inner">
@@ -140,6 +224,11 @@ export default function LiveStream() {
 
             <ScrollArea className="flex-1 p-5 bg-[#050505]/95 backdrop-blur-3xl relative">
               <div className="space-y-5 font-mono text-[11.5px] leading-relaxed">
+                <div className="rounded-md border border-white/10 bg-black/40 p-3 text-zinc-300">
+                  <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Live Telemetry JSON</p>
+                  <pre className="max-h-40 overflow-auto text-[11px] whitespace-pre-wrap wrap-break-word">{JSON.stringify(telemetry, null, 2)}</pre>
+                </div>
+
                 {logs.map((log, i) => (
                   <div key={i} className="flex gap-3 group">
                     <span className="text-zinc-600/70 shrink-0 select-none">[{log.time}]</span>

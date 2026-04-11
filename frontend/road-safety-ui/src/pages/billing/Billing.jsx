@@ -58,7 +58,7 @@ export default function Billing() {
   const razorpayKeyId = import.meta.env.VITE_RAZORPAY_KEY_ID;
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-  if (user?.is_admin) {
+  if (user?.is_admin || user?.role === "admin") {
     return <Navigate to="/admin/dashboard" replace />;
   }
 
@@ -154,12 +154,35 @@ export default function Billing() {
         name: "Road Safety AI",
         description: `${plan.name} - ${plan.price}/month`,
         image: "",
-        handler(response) {
-          showToast(
-            "success",
-            `Payment captured. Your ${planType} plan will be activated via webhook shortly. Ref: ${response.razorpay_payment_id}`
-          );
-          setTimeout(() => window.location.reload(), 6000);
+        async handler(response) {
+          try {
+            const verifyHeaders = { "Content-Type": "application/json" };
+            if (token) verifyHeaders.Authorization = `Bearer ${token}`;
+
+            const verifyResponse = await fetch(`${apiBaseUrl}/api/payment/verify`, {
+              method: "POST",
+              headers: verifyHeaders,
+              body: JSON.stringify({
+                plan_type: planType,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+
+            if (!verifyResponse.ok) {
+              const err = await verifyResponse.json().catch(() => ({}));
+              throw new Error(err.detail || "Payment verification failed");
+            }
+
+            showToast(
+              "success",
+              `Payment verified. Your ${planType} plan is now active. Ref: ${response.razorpay_payment_id}`
+            );
+            setTimeout(() => window.location.reload(), 2500);
+          } catch (verificationError) {
+            showToast("error", verificationError.message);
+          }
         },
         modal: {
           ondismiss() {

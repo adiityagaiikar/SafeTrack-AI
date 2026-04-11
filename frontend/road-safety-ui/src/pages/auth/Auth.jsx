@@ -16,10 +16,10 @@ export default function Auth() {
     const [loading, setLoading] = useState(false);
 
     const navigate = useNavigate();
-    const { login, signup, isAuthenticated, user } = useAuth();
+    const { login, signup, isAuthenticated, user, role } = useAuth();
 
     if (isAuthenticated && user) {
-        if (user.is_admin) {
+        if (user.is_admin || role === "admin") {
             return <Navigate to="/admin/dashboard" replace />;
         }
         return <Navigate to="/overview" replace />;

@@ -5,7 +5,7 @@ import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 
 export const AdminLayout = () => {
-    const { user, loading, isAuthenticated } = useAuth();
+    const { user, loading, isAuthenticated, role } = useAuth();
 
     // Show loading state
     if (loading) {
@@ -26,7 +26,7 @@ export const AdminLayout = () => {
         return <Navigate to="/login" replace />;
     }
 
-    if (user && !user?.is_admin) {
+    if (user && !(user?.is_admin || role === "admin")) {
         return <Navigate to="/login" replace />;
     }
 

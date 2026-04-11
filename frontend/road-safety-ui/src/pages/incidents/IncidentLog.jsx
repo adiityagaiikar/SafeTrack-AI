@@ -5,21 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Search, Filter, CalendarDays, DownloadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useIncidents } from "@/hooks/useIncidents";
 
 export default function IncidentLog() {
   const [searchTerm, setSearchTerm] = useState("");
+  const { incidents, loading, error } = useIncidents("accidents");
 
-  const logs = [
-    { id: "LOG-01A94X", date: "2026-03-14", time: "10:24 AM", location: "Main St & 5th Ave", plate: "ABC-1234", type: "Vehicle too close", severity: "Moderate" },
-    { id: "LOG-02B88Z", date: "2026-03-14", time: "09:41 AM", location: "Highway 401 KM 23", plate: "XYZ-9876", type: "Collision Detected", severity: "Severe" },
-    { id: "LOG-03C77Y", date: "2026-03-14", time: "08:15 AM", location: "Downtown Plaza", plate: "UNKNOWN", type: "Pedestrian near miss", severity: "Moderate" },
-    { id: "LOG-04D66X", date: "2026-03-14", time: "07:30 AM", location: "Elm St Intersection", plate: "LMN-4567", type: "Speeding", severity: "Minor" },
-    { id: "LOG-05E55W", date: "2026-03-14", time: "06:55 AM", location: "Highway 401 KM 12", plate: "QWE-2345", type: "Sudden Braking", severity: "Minor" },
-    { id: "LOG-06F44V", date: "2026-03-13", time: "11:20 PM", location: "Main St & 8th Ave", plate: "RTY-5678", type: "Red Light Running", severity: "Severe" },
-    { id: "LOG-07G33U", date: "2026-03-13", time: "08:45 PM", location: "Airport Road", plate: "UIO-9012", type: "Speeding", severity: "Minor" },
-  ];
-
-  const filteredLogs = logs.filter(log =>
+  const filteredLogs = incidents.filter(log =>
     log.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
     log.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
     log.id.toLowerCase().includes(searchTerm.toLowerCase())
@@ -77,6 +69,16 @@ export default function IncidentLog() {
           </div>
         </CardHeader>
         <CardContent className="p-0 bg-black/20 backdrop-blur-md">
+          {loading && (
+            <div className="px-8 py-6 text-sm text-zinc-400">Connecting to incident database...</div>
+          )}
+
+          {error && (
+            <div className="mx-8 my-6 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              Database connection failed: {error}
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
