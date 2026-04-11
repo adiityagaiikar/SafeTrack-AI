@@ -1,3 +1,5 @@
+import { auth } from './services/firebase';
+
 const BASE_URL = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/api`;
 
 async function parseApiError(response, fallbackMessage) {
@@ -50,6 +52,69 @@ export const api = {
             throw new Error(NETWORK_ERROR);
         }
         if (!response.ok) throw new Error('Failed to fetch incidents');
+        return response.json();
+    },
+
+    dispatchSOS: async (payload) => {
+        let response;
+
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+            throw new Error('User must be logged in to dispatch SOS');
+        }
+
+        const token = await currentUser.getIdToken(true);
+
+        try {
+            response = await fetch(`${BASE_URL}/sos/dispatch`, {
+                method: 'POST',
+                headers: getHeaders(token),
+                body: JSON.stringify(payload),
+            });
+        } catch {
+            throw new Error(NETWORK_ERROR);
+        }
+
+        if (!response.ok) {
+            const detail = await parseApiError(response, 'Failed to dispatch SOS');
+            throw new Error(detail);
+        }
+        return response.json();
+    },
+
+    getEmergencyContacts: async (token) => {
+        let response;
+        try {
+            response = await fetch(`${BASE_URL}/user/contacts`, {
+                headers: getHeaders(token),
+            });
+        } catch {
+            throw new Error(NETWORK_ERROR);
+        }
+
+        if (!response.ok) {
+            const detail = await parseApiError(response, 'Failed to fetch contacts');
+            throw new Error(detail);
+        }
+        return response.json();
+    },
+
+    saveEmergencyContacts: async (contacts, token) => {
+        let response;
+        try {
+            response = await fetch(`${BASE_URL}/user/contacts`, {
+                method: 'PUT',
+                headers: getHeaders(token),
+                body: JSON.stringify({ contacts }),
+            });
+        } catch {
+            throw new Error(NETWORK_ERROR);
+        }
+
+        if (!response.ok) {
+            const detail = await parseApiError(response, 'Failed to save contacts');
+            throw new Error(detail);
+        }
         return response.json();
     },
 

@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Save, RefreshCw, Cpu, Server, RadioReceiver } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import EmergencyContacts from "@/components/settings/EmergencyContacts";
 
 export default function Settings() {
   return (
@@ -19,7 +20,7 @@ export default function Settings() {
         <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity duration-1000 pointer-events-none">
           <Server className="w-48 h-48 text-white" />
         </div>
-        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-50"></div>
+        <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-white/20 to-transparent opacity-50"></div>
         <CardHeader className="bg-black/60 border-b border-white/5 pb-6 pt-8 px-10 backdrop-blur-xl z-10 relative">
           <div className="flex items-center gap-4 mb-2">
             <div className="p-2.5 bg-white/5 border border-white/10 rounded-xl shadow-inner group-hover:bg-white/10 transition-colors">
@@ -60,7 +61,7 @@ export default function Settings() {
         <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity duration-1000 pointer-events-none">
           <Cpu className="w-48 h-48 text-white animate-[spin_60s_linear_infinite]" />
         </div>
-        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-50"></div>
+        <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-white/20 to-transparent opacity-50"></div>
         <CardHeader className="bg-black/60 border-b border-white/5 pb-6 pt-8 px-10 backdrop-blur-xl z-10 relative">
           <div className="flex items-center gap-4 mb-2">
             <div className="p-2.5 bg-white/5 border border-white/10 rounded-xl shadow-inner group-hover:bg-white/10 transition-colors">
@@ -103,6 +104,8 @@ export default function Settings() {
 
         </CardContent>
       </Card>
+
+      <EmergencyContacts />
 
       <div className="flex justify-end gap-5 pt-8">
         <Button variant="outline" className="text-zinc-500 bg-black/40 border-white/10 hover:bg-white/5 hover:text-white rounded-full px-8 font-bold shadow-inner transition-all h-14">

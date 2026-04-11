@@ -1,6 +1,7 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
+import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import { AdminLayout } from "./components/layout/AdminLayout";
 import DashboardLayout from "./components/layout/DashboardLayout";
@@ -11,16 +12,43 @@ import DispatchRouting from "./pages/admin/DispatchRouting";
 import ReportAuditQueue from "./pages/admin/ReportAuditQueue";
 import { UserManagement } from "./pages/admin/UserManagement";
 import Overview from "./pages/dashboard/Overview";
+import BehaviorAnalytics from "./pages/dashboard/BehaviorAnalytics";
 import LiveStream from "./pages/dashboard/LiveStream";
 import VideoUpload from "./pages/dashboard/VideoUpload";
 import IncidentLog from "./pages/incidents/IncidentLog";
-import BehaviorAnalytics from "./pages/dashboard/BehaviorAnalytics";
+import PredictiveRouting from "./pages/dashboard/PredictiveRouting";
 import Settings from "./pages/settings/Settings";
 import Billing from "./pages/billing/Billing";
+import { syncQueuedVideos } from "./services/offlineSync";
 
-export default function App() {
+function ConnectivitySyncBridge() {
+  const { getFreshToken } = useAuth();
+
+  React.useEffect(() => {
+    const syncNow = async () => {
+      if (!navigator.onLine) return;
+      await syncQueuedVideos({ getFreshToken });
+    };
+
+    const onOnline = () => {
+      syncNow();
+    };
+
+    window.addEventListener("online", onOnline);
+    syncNow();
+
+    return () => {
+      window.removeEventListener("online", onOnline);
+    };
+  }, [getFreshToken]);
+
+  return null;
+}
+
+function AppRoutes() {
   return (
-    <AuthProvider>
+    <>
+      <ConnectivitySyncBridge />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Auth />} />
@@ -44,6 +72,7 @@ export default function App() {
               <Route path="upload" element={<VideoUpload />} />
               <Route path="incidents" element={<IncidentLog />} />
               <Route path="analytics" element={<BehaviorAnalytics />} />
+              <Route path="predictive-routing" element={<PredictiveRouting />} />
               <Route path="billing" element={<Billing />} />
               <Route path="settings" element={<Settings />} />
             </Route>
@@ -52,6 +81,14 @@ export default function App() {
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
     </AuthProvider>
   );
 }

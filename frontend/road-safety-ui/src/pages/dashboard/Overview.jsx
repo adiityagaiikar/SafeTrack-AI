@@ -1,9 +1,11 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Video, AlertTriangle, AlertOctagon, Timer, TrendingDown, ArrowUpRight } from "lucide-react";
 import { useIncidents } from "@/hooks/useIncidents";
+import EmergencyContacts from "@/components/settings/EmergencyContacts";
 
 export default function Overview() {
   const { loading, error, metrics } = useIncidents("accidents");
@@ -146,6 +148,30 @@ export default function Overview() {
           </Table>
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-1 gap-6">
+        <Card className="glass-card border-white/5 bg-black/30 shadow-2xl overflow-hidden">
+          <CardHeader className="border-b border-white/5 pb-5 pt-7 px-8 bg-black/30 backdrop-blur-md">
+            <CardTitle className="text-xl font-extrabold text-white tracking-tight">Route Planning</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 px-8 py-6">
+            <p className="text-sm leading-6 text-zinc-400">
+              Open the dedicated Predictive Routing page to place origin and destination pins directly on the map.
+            </p>
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-zinc-300">
+              The map is no longer embedded in Overview or Behavior Analytics, so route planning stays isolated.
+            </div>
+            <Link
+              to="/predictive-routing"
+              className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white px-5 py-2.5 text-sm font-bold text-zinc-950 transition-colors hover:bg-zinc-200"
+            >
+              Open Predictive Routing
+            </Link>
+          </CardContent>
+        </Card>
+
+        <EmergencyContacts />
+      </div>
     </div>
   );
 }

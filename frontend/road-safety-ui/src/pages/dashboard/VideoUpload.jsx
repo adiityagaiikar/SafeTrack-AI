@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -6,9 +6,15 @@ import { UploadCloud, FileVideo, CheckCircle2, X, AlertCircle, ShieldAlert } fro
 import { useAuth } from "@/context/AuthContext";
 import { uploadVideoToCloudinary } from "@/services/cloudinary";
 import { api } from "@/api";
+import { queueVideoForSync } from "@/services/offlineSync";
+import { useGeolocation } from "@/hooks/useGeolocation";
+import EmergencyModal from "@/components/EmergencyModal";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/services/firebase";
 
 export default function VideoUpload() {
-  const { getFreshToken } = useAuth();
+  const { getFreshToken, user } = useAuth();
+  const { coordinates, locationError, requestLocation } = useGeolocation();
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -16,6 +22,12 @@ export default function VideoUpload() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [offlineBanner, setOfflineBanner] = useState("");
+  const [locationWarning, setLocationWarning] = useState("");
+  const [sosModalOpen, setSosModalOpen] = useState(false);
+  const [sosDispatching, setSosDispatching] = useState(false);
+  const [lastUploadedVideoUrl, setLastUploadedVideoUrl] = useState("");
+  const [handledAnalysisId, setHandledAnalysisId] = useState(null);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -42,6 +54,8 @@ export default function VideoUpload() {
       setUploadProgress(0);
       setAnalysisResult(null);
       setErrorMessage("");
+      setOfflineBanner("");
+      setLocationWarning("");
     } else {
       setStatus("error");
       setErrorMessage("Invalid file format. Please upload a valid video file.");
@@ -69,6 +83,7 @@ export default function VideoUpload() {
       confidence,
       report,
       severity: raw?.severity || "UNKNOWN",
+      analysisId: Date.now(),
     };
   };
 
@@ -80,16 +95,34 @@ export default function VideoUpload() {
     setStatus("uploading");
     setIsAnalyzing(true);
     setUploadProgress(0);
+    setOfflineBanner("");
 
     try {
-      setUploadProgress(15);
       const token = await getFreshToken();
+
+      if (!navigator.onLine) {
+        await queueVideoForSync({
+          fileBlob: file,
+          fileName: file.name,
+          fileType: file.type,
+          token,
+          userId: user?.uid || null,
+        });
+
+        setStatus("success");
+        setUploadProgress(100);
+        setOfflineBanner("Offline Mode: Footage saved locally. Will auto-sync when connection is restored.");
+        return;
+      }
+
+      setUploadProgress(15);
       if (!token) {
         throw new Error("Your session expired. Please login again.");
       }
 
       setUploadProgress(45);
       const cloudinaryUrl = await uploadVideoToCloudinary(file);
+      setLastUploadedVideoUrl(cloudinaryUrl);
 
       setUploadProgress(75);
       const detectionResponse = await api.detectAccident(cloudinaryUrl, token);
@@ -113,14 +146,113 @@ export default function VideoUpload() {
     setIsAnalyzing(false);
     setAnalysisResult(null);
     setErrorMessage("");
+    setOfflineBanner("");
+    setLocationWarning("");
+    setSosModalOpen(false);
+    setLastUploadedVideoUrl("");
   };
+
+  const dispatchEmergencySOS = async (cloudinaryVideoUrl = lastUploadedVideoUrl, userCoordinates = coordinates) => {
+    if (sosDispatching) return;
+
+    try {
+      setSosDispatching(true);
+      const token = await getFreshToken();
+
+      const userRef = user?.uid ? doc(db, "users", user.uid) : null;
+      let emergencyContacts = [];
+
+      if (userRef) {
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          emergencyContacts = userSnap.data()?.emergencyContacts || [];
+        }
+      }
+
+      if (!emergencyContacts.length) {
+        setLocationWarning("No emergency contacts saved. Please add contacts in Settings before dispatching SOS.");
+        setSosModalOpen(false);
+        return;
+      }
+
+      await api.dispatchSOS(
+        {
+          userId: user?.uid || null,
+          coordinates: userCoordinates || null,
+          severity: analysisResult?.severity || "UNKNOWN",
+          cloudinaryVideoUrl: cloudinaryVideoUrl || null,
+          target_phone_numbers: emergencyContacts,
+        },
+        token
+      );
+
+      setSosModalOpen(false);
+      setErrorMessage("");
+      setOfflineBanner("Emergency SOS has been dispatched successfully.");
+    } catch (error) {
+      setErrorMessage(error?.message || "Failed to dispatch SOS.");
+    } finally {
+      setSosDispatching(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!analysisResult) return;
+    if (handledAnalysisId === analysisResult.analysisId) return;
+
+    if (
+      analysisResult.severity === "SEVERE RISK" ||
+      analysisResult.severity === "CRITICAL" ||
+      analysisResult.severity === "Severe"
+    ) {
+      console.log("Crash detected! Attempting to fire SOS...");
+
+      const fireEmergency = async () => {
+        const locationData = coordinates ? { coordinates } : await requestLocation();
+
+        if (locationData.error) {
+          setLocationWarning(locationData.error);
+        }
+
+        setHandledAnalysisId(analysisResult.analysisId);
+        await dispatchEmergencySOS(lastUploadedVideoUrl, locationData.coordinates || coordinates || null);
+      };
+
+      fireEmergency();
+    }
+  }, [analysisResult, handledAnalysisId, requestLocation]);
+
+  useEffect(() => {
+    if (locationError) {
+      setLocationWarning(locationError);
+    }
+  }, [locationError]);
 
   return (
     <div className="flex flex-col gap-8 max-w-4xl mx-auto h-full">
+      <EmergencyModal
+        open={sosModalOpen}
+        onCancel={() => setSosModalOpen(false)}
+        onDispatch={() => dispatchEmergencySOS(lastUploadedVideoUrl, coordinates)}
+        initialSeconds={10}
+      />
+
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-white">Upload Footage</h2>
         <p className="text-zinc-400 mt-1">Submit recorded dashcam videos for YOLOv8 batch processing and severity analysis.</p>
       </div>
+
+      {offlineBanner && (
+        <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+          {offlineBanner}
+        </div>
+      )}
+
+      {locationWarning && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          {locationWarning}
+        </div>
+      )}
 
       <Card className="glass-card border border-white/10 bg-black/30">
         <CardHeader>

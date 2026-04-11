@@ -7,6 +7,7 @@ import {
   Settings,
   ShieldAlert,
   Car,
+  Route,
   CreditCard,
   LogOut,
   Bell
@@ -26,6 +27,7 @@ export default function DashboardLayout() {
     { name: "Upload Video", path: "/upload", icon: UploadCloud },
     { name: "Accident Logs", path: "/incidents", icon: FileText },
     { name: "Behavior Analytics", path: "/analytics", icon: Car },
+    { name: "Predictive Routing", path: "/predictive-routing", icon: Route },
     { name: "Billing", path: "/billing", icon: CreditCard, userOnly: true },
     { name: "Settings", path: "/settings", icon: Settings, adminOnly: true },
   ];
@@ -84,7 +86,7 @@ export default function DashboardLayout() {
           <nav className="flex flex-col gap-1.5 mt-4">
             <div className="text-[11px] font-bold text-zinc-500 mb-3 px-3 uppercase tracking-widest">Main Menu</div>
             {visibleNavItems.map((item) => {
-              const isActive = location.pathname === item.path;
+              const isActive = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
               const Icon = item.icon;
               return (
                 <Link
