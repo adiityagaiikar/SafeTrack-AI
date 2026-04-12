@@ -19,9 +19,12 @@ export function AuthProvider({ children }) {
 
   const resolveProfile = async (firebaseUser) => {
     const email = firebaseUser.email || "";
-    const fallbackIsAdmin = email.toLowerCase() === "admin@roadsafety.local";
+    const fallbackIsAdmin =
+      email.toLowerCase() === "admin@roadsafety.local" ||
+      email.toLowerCase() === "adityaadmin@gmail.com";
 
     const resolvedName = firebaseUser.displayName || email.split("@")[0] || "User";
+    const displayName  = fallbackIsAdmin ? "System Administrator" : resolvedName;
 
     try {
       const userRef = doc(db, "users", firebaseUser.uid);
@@ -33,7 +36,7 @@ export function AuthProvider({ children }) {
         await setDoc(
           userRef,
           {
-            fullname: resolvedName,
+            fullname: displayName,
             email,
             role: resolvedRole,
             is_admin: resolvedRole === "admin",
@@ -43,11 +46,11 @@ export function AuthProvider({ children }) {
           },
           { merge: true }
         );
-      } else if (profile.role !== resolvedRole || profile.fullname !== resolvedName) {
+      } else if (profile.role !== resolvedRole || profile.fullname !== displayName) {
         await setDoc(
           userRef,
           {
-            fullname: resolvedName,
+            fullname: displayName,
             email,
             role: resolvedRole,
             is_admin: resolvedRole === "admin",
@@ -60,7 +63,7 @@ export function AuthProvider({ children }) {
       return {
         uid: firebaseUser.uid,
         email,
-        fullname: profile.fullname || resolvedName,
+        fullname: profile.fullname || displayName,
         role: resolvedRole,
         is_admin: resolvedRole === "admin",
         contacts: profile.contacts || [],
@@ -70,7 +73,7 @@ export function AuthProvider({ children }) {
       return {
         uid: firebaseUser.uid,
         email,
-        fullname: resolvedName,
+        fullname: displayName,
         role: fallbackIsAdmin ? "admin" : "user",
         is_admin: fallbackIsAdmin,
         contacts: [],

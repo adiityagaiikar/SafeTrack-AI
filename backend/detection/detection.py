@@ -1,137 +1,221 @@
 import cv2
-import torch
+import os
 import time
-from ultralytics import YOLO  # Importing YOLOv8
+import numpy as np
+from collections import deque
+from ultralytics import YOLO
 
-# Load the YOLOv8 model
-model = YOLO('yolov8n.pt')  # You can change 'yolov8n.pt' to other versions such as yolov8s.pt or yolov8m.pt
+# Dynamic path — works regardless of where the script is invoked from
+_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'yolov8n.pt')
+model = YOLO(_MODEL_PATH)
 
-# Set a scale factor for conversion (e.g., 1 meter corresponds to 100 pixels)
-SCALE_FACTOR = 0.01  # 1 meter per pixel
-SPEED_THRESHOLD = 5.0  # Speed in px/s below which sudden stop is detected
-PROLONGED_COLLISION_FRAMES = 30  # Frames to check for prolonged collision
-MIN_COLLISION_DISTANCE = 50  # Minimum distance between bounding boxes (in pixels)
+# Detection thresholds
+CONF_GENERAL          = 0.25   # base detection threshold
+CONF_CRITICAL         = 0.60   # high-confidence filter for CRITICAL alerts
+IOU_THRESHOLD         = 0.45   # NMS suppression — prevents box doubling
+SPEED_THRESHOLD       = 5.0    # px/s below which a sudden stop is flagged
+PROLONGED_FRAMES      = 30     # consecutive frames to confirm prolonged collision
+MIN_COLLISION_DIST    = 50     # pixel proximity that triggers proximity alert
+TEMPORAL_WINDOW       = 3      # frames kept for moving-average smoothing
+COLLISION_IOU_TRIGGER = 0.2    # IoU above which two boxes are "colliding"
 
-def calculate_iou(box1, box2):
-    x1_inter = max(box1[0], box2[0])
-    y1_inter = max(box1[1], box2[1])
-    x2_inter = min(box1[2], box2[2])
-    y2_inter = min(box1[3], box2[3])
-    
-    inter_area = max(0, x2_inter - x1_inter) * max(0, y2_inter - y1_inter)
-    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-    
-    union_area = box1_area + box2_area - inter_area
-    iou = inter_area / union_area if union_area > 0 else 0
-    return iou
+# CLAHE pre-processor (applied per-frame before inference)
+_clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
-def calculate_speed(box1, box2, time_diff):
-    distance_px = ((box1[0] - box2[0]) ** 2 + (box1[1] - box2[1]) ** 2) ** 0.5
-    speed_pxps = distance_px / time_diff if time_diff > 0 else 0  # Speed in pixels per second
-    return speed_pxps
 
-def detect_accident(video_path):
+def _apply_clahe(frame: np.ndarray) -> np.ndarray:
+    """Convert to LAB, apply CLAHE on L-channel, convert back to BGR."""
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    l_eq = _clahe.apply(l)
+    return cv2.cvtColor(cv2.merge([l_eq, a, b]), cv2.COLOR_LAB2BGR)
+
+
+def _letterbox(frame: np.ndarray, target: int = 640) -> np.ndarray:
+    """
+    Resize frame to target×target while preserving aspect ratio (letterbox).
+    Pads with grey so vehicles are never squashed/stretched.
+    """
+    h, w = frame.shape[:2]
+    scale = target / max(h, w)
+    new_w, new_h = int(w * scale), int(h * scale)
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    canvas = np.full((target, target, 3), 114, dtype=np.uint8)
+    pad_top  = (target - new_h) // 2
+    pad_left = (target - new_w) // 2
+    canvas[pad_top:pad_top + new_h, pad_left:pad_left + new_w] = resized
+    return canvas
+
+
+def _smooth_detections(buffer: deque) -> list[dict]:
+    """
+    3-frame moving average over bounding-box coordinates.
+    Each entry in buffer is a list of dicts with keys: box, conf, cls.
+    Returns smoothed detections from the latest frame when box counts match;
+    otherwise falls back to the most recent frame's raw detections.
+    """
+    if not buffer:
+        return []
+    counts = [len(f) for f in buffer]
+    latest = buffer[-1]
+    if len(set(counts)) == 1 and counts[0] > 0:
+        smoothed = []
+        for i, det in enumerate(latest):
+            avg_box = np.mean(
+                [list(buffer[t][i]["box"]) for t in range(len(buffer))], axis=0
+            ).tolist()
+            smoothed.append({"box": avg_box, "conf": det["conf"], "cls": det["cls"]})
+        return smoothed
+    return latest
+
+
+def calculate_iou(box1, box2) -> float:
+    x1 = max(box1[0], box2[0]);  y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2]);  y2 = min(box1[3], box2[3])
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union = area1 + area2 - inter
+    return inter / union if union > 0 else 0.0
+
+
+def calculate_speed(box1, box2, time_diff: float) -> float:
+    dist = ((box1[0] - box2[0]) ** 2 + (box1[1] - box2[1]) ** 2) ** 0.5
+    return dist / time_diff if time_diff > 0 else 0.0
+
+
+def detect_accident(video_path: str) -> dict:
+    """
+    Process a video file and return a structured detection result.
+
+    Returns:
+        {
+            "accident": bool,
+            "severity": "HIGH" | "MEDIUM" | "LOW" | "NONE",
+            "collision_count": int,
+            "max_confidence": float,   # highest conf seen across all frames
+            "frames_processed": int,
+        }
+    """
     cap = cv2.VideoCapture(video_path)
-    accident_detected = False
-    frame_counter = 0
-    collision_threshold = 120  # 2 minutes in seconds
-    no_movement_counter = 0
-    collision_count = 0
-    last_boxes = []
-    prolonged_collision_count = 0  # To track prolonged collision
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video: {video_path}")
+
+    accident_detected       = False
+    frame_counter           = 0
+    collision_count         = 0
+    prolonged_collision_cnt = 0
+    frames_processed        = 0
+    max_confidence          = 0.0
+    last_boxes: list        = []
+
+    # Rolling buffer for temporal smoothing
+    det_buffer: deque = deque(maxlen=TEMPORAL_WINDOW)
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
+        frames_processed += 1
 
-        current_time = time.time()
-        results = model(frame)  # Perform detection on the frame
-        boxes = results[0].boxes.xyxy.cpu().numpy()  # Get bounding boxes in xyxy format
+        # ── Pre-processing ───────────────────────────────────────────────────
+        enhanced = _apply_clahe(frame)
+        prepared = _letterbox(enhanced, target=640)
 
-        # Draw detections on the frame
-        for i, box in enumerate(boxes):
-            if len(box) >= 4:
-                x1, y1, x2, y2 = box[:4]
-                conf = box[4] if len(box) > 4 else None
-                cls = int(box[5]) if len(box) > 5 else None
+        # ── Inference ────────────────────────────────────────────────────────
+        results = model.predict(
+            prepared,
+            conf=CONF_GENERAL,
+            iou=IOU_THRESHOLD,
+            augment=True,
+            verbose=False,
+        )
 
-                label = f'Class {cls}: {conf:.2f}' if conf is not None else 'Unknown'
-                color = (0, 255, 0)  # Default color for normal detections
-                if accident_detected:
-                    color = (0, 0, 255)  # Red for accident detected
+        # Build per-frame detection list (preserves conf + cls alongside box)
+        raw_dets: list[dict] = []
+        for box in results[0].boxes:
+            conf_val = float(box.conf.item())
+            cls_val  = int(box.cls.item())
+            xyxy     = box.xyxy[0].cpu().numpy().tolist()
+            raw_dets.append({"box": xyxy, "conf": conf_val, "cls": cls_val})
+            if conf_val > max_confidence:
+                max_confidence = conf_val
 
-                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-                cv2.putText(frame, label, (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        # ── Temporal smoothing ───────────────────────────────────────────────
+        det_buffer.append(raw_dets)
+        dets = _smooth_detections(det_buffer)
 
-                # Calculate and display speed
-                if len(last_boxes) > i:
-                    speed = calculate_speed(last_boxes[i], box[:4], 1)  # Assume 1 second between frames
-                    cv2.putText(frame, f'Speed: {speed:.2f} px/s', (int(x1), int(y1) + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+        # ── Collision logic ──────────────────────────────────────────────────
+        collision_this_frame = False
+        for i in range(len(dets)):
+            for j in range(i + 1, len(dets)):
+                b1, b2 = dets[i]["box"], dets[j]["box"]
+                iou = calculate_iou(b1, b2)
 
-                    # Sudden stop detection
-                    if speed < SPEED_THRESHOLD:
-                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Sudden stop detected for object {i}!")
-
-        collision_detected = False
-
-        for i in range(len(boxes)):
-            for j in range(i + 1, len(boxes)):
-                box1 = boxes[i][:4]
-                box2 = boxes[j][:4]
-                
-                iou = calculate_iou(box1, box2)
-                if iou > 0.2:
-                    collision_detected = True
+                if iou > COLLISION_IOU_TRIGGER:
+                    collision_this_frame = True
                     collision_count += 1
-                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Collision detected between object {i} and object {j}!")
+                    prolonged_collision_cnt += 1
 
-                    # Prolonged collision detection
-                    if prolonged_collision_count < PROLONGED_COLLISION_FRAMES:
-                        prolonged_collision_count += 1
-                    if prolonged_collision_count >= PROLONGED_COLLISION_FRAMES:
+                    # High-confidence filter: CRITICAL alert only if both
+                    # detections exceed the critical confidence threshold
+                    if (dets[i]["conf"] > CONF_CRITICAL and
+                            dets[j]["conf"] > CONF_CRITICAL):
                         accident_detected = True
-                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Accident Detected due to prolonged collision!")
+                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                              f"CRITICAL collision — obj {i} & {j} "
+                              f"(conf {dets[i]['conf']:.2f}/{dets[j]['conf']:.2f})")
 
-                # Check minimum distance between bounding boxes
-                distance_between_boxes = ((box1[0] - box2[0]) ** 2 + (box1[1] - box2[1]) ** 2) ** 0.5
-                if distance_between_boxes < MIN_COLLISION_DISTANCE:
-                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Accident Detected due to close proximity between object {i} and object {j}!")
+                    if prolonged_collision_cnt >= PROLONGED_FRAMES:
+                        accident_detected = True
+                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                              f"Accident — prolonged collision ({PROLONGED_FRAMES} frames)")
 
-        if collision_detected:
+                dist = ((b1[0] - b2[0]) ** 2 + (b1[1] - b2[1]) ** 2) ** 0.5
+                if dist < MIN_COLLISION_DIST:
+                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                          f"Accident — close proximity obj {i} & {j}")
+
+        # Speed check against previous frame
+        for i, det in enumerate(dets):
+            if i < len(last_boxes):
+                speed = calculate_speed(last_boxes[i]["box"], det["box"], 1)
+                if speed < SPEED_THRESHOLD:
+                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                          f"Sudden stop — object {i} (speed {speed:.2f} px/s)")
+
+        if collision_this_frame:
             frame_counter += 1
-            no_movement_counter = 0
-
-            # Check if there's no movement for the threshold duration
-            if frame_counter >= collision_threshold:
+            if frame_counter >= 120:
                 accident_detected = True
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Accident Detected due to no movement for 2 minutes!")
-
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                      f"Accident — no movement for 2 min")
         else:
-            no_movement_counter += 1
             frame_counter = 0
+            prolonged_collision_cnt = 0
 
-            # Check for collision percentage
-            collision_percentage = len([1 for i in range(len(boxes)) for j in range(i + 1, len(boxes)) if calculate_iou(boxes[i][:4], boxes[j][:4]) > 0.2])
-            if collision_percentage >= len(boxes) * 0.2:  # 20% of boxes are colliding
-                accident_detected = True
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Accident Detected due to 20% collision of bounding boxes!")
+        last_boxes = dets
 
-        # Display accident detection
-        if accident_detected:
-            cv2.putText(frame, "Accident Detected!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-        last_boxes = boxes.copy()  # Update last boxes for speed calculation
-        cv2.imshow('YOLOv8 Accident Detection', frame)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    print(f"Total collisions detected: {collision_count}")
     cap.release()
-    cv2.destroyAllWindows()
 
-# Update the video path as per your system
-video_path = 'C:/final_cap/backend/videos/testing.mp4'
-detect_accident(video_path)
+    # ── Severity classification ──────────────────────────────────────────────
+    if accident_detected and max_confidence >= CONF_CRITICAL:
+        severity = "HIGH"
+    elif accident_detected:
+        severity = "MEDIUM"
+    elif collision_count > 0:
+        severity = "LOW"
+    else:
+        severity = "NONE"
+
+    print(f"[detect_accident] frames={frames_processed}, "
+          f"collisions={collision_count}, accident={accident_detected}, "
+          f"severity={severity}, max_conf={max_confidence:.3f}")
+
+    return {
+        "accident":         accident_detected,
+        "severity":         severity,
+        "collision_count":  collision_count,
+        "max_confidence":   round(max_confidence, 3),
+        "frames_processed": frames_processed,
+    }

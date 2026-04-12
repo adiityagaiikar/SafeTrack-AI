@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
@@ -20,6 +20,44 @@ import PredictiveRouting from "./pages/dashboard/PredictiveRouting";
 import Settings from "./pages/settings/Settings";
 import Billing from "./pages/billing/Billing";
 import { syncQueuedVideos } from "./services/offlineSync";
+
+// ── Admin-only route guard ────────────────────────────────────────────────────
+function AdminRoute({ children }) {
+  const { isAdmin, loading } = useAuth();
+  const navigate = useNavigate();
+  const [toastVisible, setToastVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!loading && !isAdmin) {
+      setToastVisible(true);
+      const t = setTimeout(() => {
+        setToastVisible(false);
+        navigate("/overview", { replace: true });
+      }, 2800);
+      return () => clearTimeout(t);
+    }
+  }, [loading, isAdmin, navigate]);
+
+  if (loading) return null;
+
+  if (!isAdmin) {
+    return (
+      <>
+        {toastVisible && (
+          <div className="fixed top-6 right-6 z-[9999] flex items-center gap-3 px-5 py-3.5 rounded-2xl bg-red-950 border border-red-500/40 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-in fade-in slide-in-from-top-4 duration-300">
+            <span className="text-red-400 text-lg">🔒</span>
+            <div>
+              <p className="text-sm font-black text-red-300 tracking-wide">Access Denied</p>
+              <p className="text-xs text-red-400/80 font-mono">Admin Privileges Required</p>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return children;
+}
 
 function ConnectivitySyncBridge() {
   const { getFreshToken } = useAuth();
@@ -70,10 +108,10 @@ function AppRoutes() {
               <Route path="overview" element={<Overview />} />
               <Route path="stream" element={<LiveStream />} />
               <Route path="upload" element={<VideoUpload />} />
-              <Route path="incidents" element={<IncidentLog />} />
-              <Route path="analytics" element={<BehaviorAnalytics />} />
-              <Route path="predictive-routing" element={<PredictiveRouting />} />
-              <Route path="billing" element={<Billing />} />
+              <Route path="incidents" element={<AdminRoute><IncidentLog /></AdminRoute>} />
+              <Route path="analytics" element={<AdminRoute><BehaviorAnalytics /></AdminRoute>} />
+              <Route path="predictive-routing" element={<AdminRoute><PredictiveRouting /></AdminRoute>} />
+              <Route path="billing" element={<AdminRoute><Billing /></AdminRoute>} />
               <Route path="settings" element={<Settings />} />
             </Route>
           </Route>

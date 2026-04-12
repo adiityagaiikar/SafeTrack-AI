@@ -9,6 +9,7 @@ import { api } from "@/api";
 import { queueVideoForSync } from "@/services/offlineSync";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import EmergencyModal from "@/components/EmergencyModal";
+import FirstResponderModal from "@/components/FirstResponderModal";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/services/firebase";
 
@@ -28,6 +29,7 @@ export default function VideoUpload() {
   const [sosDispatching, setSosDispatching] = useState(false);
   const [lastUploadedVideoUrl, setLastUploadedVideoUrl] = useState("");
   const [handledAnalysisId, setHandledAnalysisId] = useState(null);
+  const [firstResponderOpen, setFirstResponderOpen] = useState(false);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -150,6 +152,7 @@ export default function VideoUpload() {
     setLocationWarning("");
     setSosModalOpen(false);
     setLastUploadedVideoUrl("");
+    setFirstResponderOpen(false);
   };
 
   const dispatchEmergencySOS = async (cloudinaryVideoUrl = lastUploadedVideoUrl, userCoordinates = coordinates) => {
@@ -200,12 +203,14 @@ export default function VideoUpload() {
     if (!analysisResult) return;
     if (handledAnalysisId === analysisResult.analysisId) return;
 
-    if (
-      analysisResult.severity === "SEVERE RISK" ||
-      analysisResult.severity === "CRITICAL" ||
-      analysisResult.severity === "Severe"
-    ) {
-      console.log("Crash detected! Attempting to fire SOS...");
+    console.log("Backend returned exact severity string:", analysisResult.severity);
+
+    const severityLevel = analysisResult.severity?.toUpperCase() || "";
+    if (["CRITICAL", "HIGH", "SEVERE", "SEVERE RISK"].includes(severityLevel)) {
+      // Show the First Responder Guide specifically for CRITICAL events
+      if (severityLevel === "CRITICAL") {
+        setFirstResponderOpen(true);
+      }
 
       const fireEmergency = async () => {
         const locationData = coordinates ? { coordinates } : await requestLocation();
@@ -215,6 +220,7 @@ export default function VideoUpload() {
         }
 
         setHandledAnalysisId(analysisResult.analysisId);
+        console.log("Crash detected! Executing SOS sequence...");
         await dispatchEmergencySOS(lastUploadedVideoUrl, locationData.coordinates || coordinates || null);
       };
 
@@ -230,6 +236,10 @@ export default function VideoUpload() {
 
   return (
     <div className="flex flex-col gap-8 max-w-4xl mx-auto h-full">
+      <FirstResponderModal
+        open={firstResponderOpen}
+        onDismiss={() => setFirstResponderOpen(false)}
+      />
       <EmergencyModal
         open={sosModalOpen}
         onCancel={() => setSosModalOpen(false)}

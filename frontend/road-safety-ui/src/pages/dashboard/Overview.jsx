@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Video, AlertTriangle, AlertOctagon, Timer, TrendingDown, ArrowUpRight } from "lucide-react";
+import { Video, AlertTriangle, AlertOctagon, Timer, TrendingDown, ArrowUpRight, Truck, Activity, Map } from "lucide-react";
 import { useIncidents } from "@/hooks/useIncidents";
 import EmergencyContacts from "@/components/settings/EmergencyContacts";
 
@@ -24,7 +24,7 @@ export default function Overview() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
+    <div className="space-y-8 max-w-full overflow-x-hidden animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
       <div className="flex flex-col gap-1.5">
         <h2 className="text-4xl font-extrabold tracking-tight text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">Overview Dashboard</h2>
         <p className="text-zinc-500 font-medium text-lg">Real-time transportation network health and inference analytics.</p>
@@ -99,6 +99,66 @@ export default function Overview() {
         </Card>
       </div>
 
+      {/* ── Enterprise Fleet Status ─────────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Card 1 — Active Nodes */}
+        <Card className="glass-card border-white/5 bg-slate-800/60 shadow-xl overflow-hidden group hover:border-green-500/20 transition-all duration-300">
+          <CardContent className="flex items-center gap-4 px-6 py-5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-500/10 border border-green-500/20 group-hover:bg-green-500/20 transition-colors">
+              <Truck className="h-5 w-5 text-green-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Active Nodes</p>
+              <p className="text-xl font-black text-white tracking-tight">
+                42 <span className="text-zinc-600 font-medium text-base">/ 50</span>
+              </p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-green-400 mt-1 flex items-center gap-1.5">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+                </span>
+                Active Vehicles
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 2 — System Health */}
+        <Card className="glass-card border-white/5 bg-slate-800/60 shadow-xl overflow-hidden group hover:border-blue-500/20 transition-all duration-300">
+          <CardContent className="flex items-center gap-4 px-6 py-5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 border border-blue-500/20 group-hover:bg-blue-500/20 transition-colors">
+              <Activity className="h-5 w-5 text-blue-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">System Health</p>
+              <p className="text-xl font-black text-white tracking-tight">99.8%</p>
+              <div className="mt-1">
+                <span className="inline-flex items-center text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  STABLE
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 3 — Total Coverage */}
+        <Card className="glass-card border-white/5 bg-slate-800/60 shadow-xl overflow-hidden group hover:border-orange-500/20 transition-all duration-300">
+          <CardContent className="flex items-center gap-4 px-6 py-5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-500/10 border border-orange-500/20 group-hover:bg-orange-500/20 transition-colors">
+              <Map className="h-5 w-5 text-orange-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Total Coverage</p>
+              <p className="text-xl font-black text-white tracking-tight">12,450 km</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">
+                Cumulative Distance
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Recent Validated Detections ─────────────────────────────────── */}
       <Card className="glass-card border-none shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-white/20 to-transparent"></div>
         <CardHeader className="border-b border-white/5 pb-5 pt-7 px-8 bg-black/40 backdrop-blur-md">
@@ -109,43 +169,49 @@ export default function Overview() {
             </button>
           </div>
         </CardHeader>
-        <CardContent className="p-0 bg-black/20 backdrop-blur-sm">
+        <CardContent className="p-0 bg-black/20 backdrop-blur-sm overflow-hidden">
           {loading && <div className="px-8 py-5 text-sm text-zinc-400">Loading live incident metrics...</div>}
           {error && (
             <div className="mx-8 my-5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               Database connection failed: {error}
             </div>
           )}
-          <Table>
-            <TableHeader>
-              <TableRow className="border-white/5 hover:bg-transparent">
-                <TableHead className="w-30 font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Audit ID</TableHead>
-                <TableHead className="font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Timestamp</TableHead>
-                <TableHead className="font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Geo-Location</TableHead>
-                <TableHead className="font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Classification</TableHead>
-                <TableHead className="text-right font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Risk Severity</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recentIncidents.length > 0 ? (
-                recentIncidents.map((incident) => (
-                  <TableRow key={incident.id} className="border-white/5 hover:bg-white/5 transition-colors group cursor-pointer">
-                    <TableCell className="font-bold text-white px-8 py-4 font-mono text-sm">{incident.id}</TableCell>
-                    <TableCell className="font-semibold text-zinc-400 px-8 py-4">{incident.time}</TableCell>
-                    <TableCell className="font-medium text-zinc-300 px-8 py-4">{incident.location}</TableCell>
-                    <TableCell className="font-medium text-zinc-300 px-8 py-4">{incident.type}</TableCell>
-                    <TableCell className="text-right px-8 py-4">{getSeverityBadge(incident.severity)}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-zinc-500">
-                    No incidents available yet.
-                  </TableCell>
+          <div className="overflow-x-auto w-full">
+            <Table className="table-fixed w-full">
+              <TableHeader>
+                <TableRow className="border-white/5 hover:bg-transparent">
+                  <TableHead className="w-[140px] font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Audit ID</TableHead>
+                  <TableHead className="w-[110px] font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Timestamp</TableHead>
+                  <TableHead className="font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Geo-Location</TableHead>
+                  <TableHead className="font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Classification</TableHead>
+                  <TableHead className="w-[130px] text-right font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8">Risk Severity</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {recentIncidents.length > 0 ? (
+                  recentIncidents.map((incident) => (
+                    <TableRow key={incident.id} className="border-white/5 hover:bg-white/5 transition-colors group cursor-pointer">
+                      <TableCell className="px-8 py-4 max-w-[140px]">
+                        <span className="block font-mono text-sm font-bold text-white truncate" title={incident.id}>
+                          {incident.id}
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-semibold text-zinc-400 px-8 py-4 whitespace-nowrap">{incident.time}</TableCell>
+                      <TableCell className="font-medium text-zinc-300 px-8 py-4">{incident.location}</TableCell>
+                      <TableCell className="font-medium text-zinc-300 px-8 py-4">{incident.type}</TableCell>
+                      <TableCell className="text-right px-8 py-4 whitespace-nowrap">{getSeverityBadge(incident.severity)}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-24 text-center text-zinc-500">
+                      No incidents available yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

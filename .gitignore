@@ -51,3 +51,8 @@ backend/videos/
 *.pth
 *.onnx
 *.engine
+
+# Secrets
+backend/firebase-key.json
+backend/.env
+.env

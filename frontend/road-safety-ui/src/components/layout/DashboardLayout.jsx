@@ -22,19 +22,18 @@ export default function DashboardLayout() {
   const displayEmail = user?.email || "";
 
   const navItems = [
-    { name: "Overview", path: "/overview", icon: LayoutDashboard },
-    { name: "Live Stream", path: "/stream", icon: Video },
-    { name: "Upload Video", path: "/upload", icon: UploadCloud },
-    { name: "Accident Logs", path: "/incidents", icon: FileText },
-    { name: "Behavior Analytics", path: "/analytics", icon: Car },
-    { name: "Predictive Routing", path: "/predictive-routing", icon: Route },
-    { name: "Billing", path: "/billing", icon: CreditCard, userOnly: true },
-    { name: "Settings", path: "/settings", icon: Settings, adminOnly: true },
+    { name: "Overview",            path: "/overview",           icon: LayoutDashboard },
+    { name: "Live Stream",         path: "/stream",             icon: Video },
+    { name: "Upload Video",        path: "/upload",             icon: UploadCloud },
+    { name: "Accident Logs",       path: "/incidents",          icon: FileText,   adminOnly: true },
+    { name: "Behavior Analytics",  path: "/analytics",          icon: Car,        adminOnly: true },
+    { name: "Predictive Routing",  path: "/predictive-routing", icon: Route,      adminOnly: true },
+    { name: "Billing",             path: "/billing",            icon: CreditCard, adminOnly: true },
+    { name: "Settings",            path: "/settings",           icon: Settings },
   ];
 
   const visibleNavItems = navItems.filter((item) => {
     if (item.adminOnly && !isAdmin) return false;
-    if (item.userOnly && isAdmin) return false;
     return true;
   });
 
@@ -119,7 +118,7 @@ export default function DashboardLayout() {
             </div>
             <div className="flex flex-col flex-1 min-w-0">
               <span className="text-sm font-bold text-white leading-none mb-1.5 truncate">{displayName}</span>
-              <span className="text-[10px] font-bold tracking-wider text-zinc-400 uppercase leading-none">{isAdmin ? "Administrator" : "Operator"}</span>
+              <span className="text-[10px] font-bold tracking-wider text-zinc-400 uppercase leading-none">{isAdmin ? "System Administrator" : "Operator"}</span>
             </div>
           </div>
           <button 
@@ -133,7 +132,7 @@ export default function DashboardLayout() {
       </aside>
 
       {/* ---------------- MAIN CONTENT AREA ---------------- */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative z-10">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative z-10 min-w-0">
 
         {/* Top Header */}
         <header className="flex h-20 items-center justify-between glass border-b border-white/5 px-8 z-20 shrink-0">

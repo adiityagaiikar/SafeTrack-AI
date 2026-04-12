@@ -119,4 +119,30 @@ export const api = {
     },
 
     // We will add more endpoints as needed
+
+    getFleetSegmentation: async () => {
+        let response;
+        try {
+            response = await fetch(`${BASE_URL}/fleet/segmentation`);
+        } catch {
+            throw new Error(NETWORK_ERROR);
+        }
+        if (!response.ok) throw new Error("Fleet segmentation failed");
+        return response.json();
+    },
+
+    generateNarrative: async (events, incidentId) => {
+        let response;
+        try {
+            response = await fetch(`${BASE_URL}/generate-narrative`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ events, incident_id: incidentId }),
+            });
+        } catch {
+            throw new Error(NETWORK_ERROR);
+        }
+        if (!response.ok) throw new Error("Narrative generation failed");
+        return response.json();
+    },
 };

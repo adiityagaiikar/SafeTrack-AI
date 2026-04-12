@@ -30,6 +30,17 @@ FIREBASE_CREDENTIALS_PATH=firebase-key.json
 
 # Gemini API Key
 GEMINI_API_KEY=your_gemini_api_key_here
+
+# Twilio Credentials
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_phone_number
+TARGET_PHONE_NUMBER=target_emergency_phone_number
+
+# Razorpay Credentials (Optional)
+RAZORPAY_KEY_ID=your_razorpay_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret
+PAYMENT_VERIFICATION_SECRET=your_payment_verification_secret
 ```
 
 **Frontend (`frontend/road-safety-ui/.env`):**
