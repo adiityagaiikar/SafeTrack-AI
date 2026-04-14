@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs, query } from "firebase/firestore";
-import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polyline, Circle, Popup, useMapEvents } from "react-leaflet";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,9 +48,21 @@ export default function SafetyMap() {
   const [selectionMode, setSelectionMode] = useState("origin");
   const [selectedOrigin, setSelectedOrigin] = useState(DEFAULT_CENTER);
   const [selectedDestination, setSelectedDestination] = useState([28.61, 77.24]);
+  const [routePath, setRoutePath] = useState([]);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState("");
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const accidentHotspots = useMemo(
+    () => [
+      { id: "hotspot-1", coordinates: [28.6315, 77.2177] },
+      { id: "hotspot-2", coordinates: [28.6247, 77.2312] },
+      { id: "hotspot-3", coordinates: [28.6099, 77.2198] },
+    ],
+    [],
+  );
 
   useEffect(() => {
     const loadIncidents = async () => {
@@ -89,13 +101,44 @@ export default function SafetyMap() {
     loadIncidents();
   }, []);
 
-  const routePath = useMemo(() => {
-    const midPoint = [
-      (selectedOrigin[0] + selectedDestination[0]) / 2 + 0.01,
-      (selectedOrigin[1] + selectedDestination[1]) / 2 + 0.01,
-    ];
+  useEffect(() => {
+    const fetchRoute = async () => {
+      setRouteLoading(true);
+      setRouteError("");
 
-    return [selectedOrigin, midPoint, selectedDestination];
+      try {
+        const startLat = selectedOrigin[0];
+        const startLng = selectedOrigin[1];
+        const endLat = selectedDestination[0];
+        const endLng = selectedDestination[1];
+
+        const response = await fetch(
+          `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`,
+        );
+
+        if (!response.ok) {
+          throw new Error(`Routing request failed (${response.status})`);
+        }
+
+        const data = await response.json();
+        const coordinates = data?.routes?.[0]?.geometry?.coordinates || [];
+
+        if (!coordinates.length) {
+          throw new Error("No route geometry returned by OSRM.");
+        }
+
+        // OSRM returns [lng, lat] and Leaflet expects [lat, lng].
+        const converted = coordinates.map(([lng, lat]) => [lat, lng]);
+        setRoutePath(converted);
+      } catch (err) {
+        setRouteError(err?.message || "Failed to fetch route from OSRM.");
+        setRoutePath([selectedOrigin, selectedDestination]);
+      } finally {
+        setRouteLoading(false);
+      }
+    };
+
+    fetchRoute();
   }, [selectedOrigin, selectedDestination]);
 
   const handleMapPick = (coordinates, mode) => {
@@ -116,22 +159,22 @@ export default function SafetyMap() {
         <p className="text-zinc-500 text-sm font-medium">Select route endpoints on the map and compare them against historical accident zones.</p>
       </div>
 
-      <div className="h-140 relative">
+      <div className="h-[calc(100vh-16rem)] min-h-140 relative">
         <MapContainer center={selectedOrigin} zoom={12} className="h-full w-full z-0">
           <MapClickHandler selectionMode={selectionMode} onPick={handleMapPick} />
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           />
 
           {incidents.map((incident) => {
             const visual = getSeverityStyle(incident.severity);
 
             return (
-              <CircleMarker
+              <Circle
                 key={incident.id}
                 center={incident.coordinates}
-                radius={visual.radius}
+                radius={visual.radius * 20}
                 pathOptions={{
                   color: visual.color,
                   fillColor: visual.color,
@@ -145,35 +188,37 @@ export default function SafetyMap() {
                     <p>Severity: {incident.severity}</p>
                   </div>
                 </Popup>
-              </CircleMarker>
+              </Circle>
             );
           })}
 
-          <CircleMarker
+          {accidentHotspots.map((hotspot) => (
+            <Circle
+              key={hotspot.id}
+              center={hotspot.coordinates}
+              radius={170}
+              pathOptions={{
+                color: "red",
+                fillColor: "#ef4444",
+                fillOpacity: 0.4,
+                weight: 2,
+              }}
+            >
+              <Popup>High-Risk Collision Zone</Popup>
+            </Circle>
+          ))}
+
+          <Marker
             center={selectedOrigin}
-            radius={10}
-            pathOptions={{
-              color: "#38bdf8",
-              fillColor: "#38bdf8",
-              fillOpacity: 0.8,
-              weight: 2,
-            }}
           >
             <Popup>Origin</Popup>
-          </CircleMarker>
+          </Marker>
 
-          <CircleMarker
+          <Marker
             center={selectedDestination}
-            radius={10}
-            pathOptions={{
-              color: "#22c55e",
-              fillColor: "#22c55e",
-              fillOpacity: 0.8,
-              weight: 2,
-            }}
           >
             <Popup>Destination</Popup>
-          </CircleMarker>
+          </Marker>
 
           <Polyline
             positions={routePath}
@@ -221,7 +266,15 @@ export default function SafetyMap() {
             </div>
 
             <div className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-300">
-              {loading ? "Loading historical incident coordinates..." : error ? `Data error: ${error}` : `${incidents.length} mapped danger zones loaded`}
+              {loading
+                ? "Loading historical incident coordinates..."
+                : error
+                ? `Data error: ${error}`
+                : routeLoading
+                ? "Computing OSRM route..."
+                : routeError
+                ? `Routing error: ${routeError}`
+                : `${incidents.length} mapped danger zones loaded`}
             </div>
 
             <div className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-zinc-300 space-y-1">

@@ -144,7 +144,7 @@ function drawGlassBadge(ctx, x, y, det, color) {
 }
 
 // ─── ADAS drivable-area trapezoid ────────────────────────────────────────────
-function drawADASPath(ctx, cw, ch) {
+function drawADASPath(ctx, cw, ch, proximityAlert, flashOn) {
   // Vanishing point: centre-top of bottom half
   const vpX  = cw * 0.5;
   const vpY  = ch * 0.42;          // horizon line
@@ -164,15 +164,19 @@ function drawADASPath(ctx, cw, ch) {
   ctx.lineTo(tr.x, tr.y);
   ctx.lineTo(br.x, br.y);
   ctx.closePath();
-  ctx.fillStyle = "rgba(59,130,246,0.15)";
+  if (proximityAlert) {
+    ctx.fillStyle = flashOn ? "rgba(239,68,68,0.26)" : "rgba(239,68,68,0.16)";
+  } else {
+    ctx.fillStyle = "rgba(59,130,246,0.15)";
+  }
   ctx.fill();
 
   // 2. Dashed orange lane borders (left + right angled lines)
   ctx.setLineDash([15, 15]);
   ctx.lineWidth   = 4;
-  ctx.strokeStyle = "#f97316";
+  ctx.strokeStyle = proximityAlert ? (flashOn ? "#ef4444" : "#f87171") : "#f97316";
   ctx.lineCap     = "round";
-  ctx.shadowColor = "#f97316";
+  ctx.shadowColor = proximityAlert ? "#ef4444" : "#f97316";
   ctx.shadowBlur  = 8;
 
   ctx.beginPath();
@@ -243,12 +247,12 @@ function drawDetection(ctx, det, sx, sy) {
 }
 
 // ─── Master HUD draw — called every rAF tick ─────────────────────────────────
-function drawHUD(ctx, detections, cw, ch, flashOn, showOverlay) {
+function drawHUD(ctx, detections, cw, ch, flashOn, showOverlay, proximityAlert) {
   ctx.clearRect(0, 0, cw, ch);
   if (!showOverlay) return;
 
   // 1. ADAS path — always visible when overlay is on
-  drawADASPath(ctx, cw, ch);
+  drawADASPath(ctx, cw, ch, proximityAlert, flashOn);
 
   if (!detections.length) return;
 
@@ -280,11 +284,13 @@ function drawHUD(ctx, detections, cw, ch, flashOn, showOverlay) {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function LiveStream() {
   const [logs, setLogs]                 = useState([]);
-  const [telemetry, setTelemetry]       = useState({});
+  const [telemetryData, setTelemetryData] = useState({});
   const [wsStatus, setWsStatus]         = useState("connecting");
   const [streamError, setStreamError]   = useState("");
   const [detections, setDetections]     = useState([]);
+  const [closestDistance, setClosestDistance] = useState(null);
   const [hazardAlert, setHazardAlert]   = useState(false);
+  const [proximityAlert, setProximityAlert] = useState(false);
   const [collisionVec, setCollisionVec] = useState(false);
   const [showOverlay, setShowOverlay]   = useState(true);
 
@@ -301,9 +307,38 @@ export default function LiveStream() {
   const flashRef        = useRef(false);
   const flashTimerRef   = useRef(null);
   const hazardLoggedRef = useRef(false);
+  const proximityRef    = useRef(false);
+  const telemetryPreRef = useRef(null);
+  const lastAlertTimeRef = useRef(0);
 
   useEffect(() => { detectionsRef.current  = detections;  }, [detections]);
   useEffect(() => { showOverlayRef.current = showOverlay; }, [showOverlay]);
+  useEffect(() => { proximityRef.current   = proximityAlert; }, [proximityAlert]);
+
+  useEffect(() => {
+    if (!telemetryPreRef.current) return;
+    telemetryPreRef.current.scrollTop = telemetryPreRef.current.scrollHeight;
+  }, [telemetryData]);
+
+  const triggerVoiceAlert = useCallback((message) => {
+    const now = Date.now();
+    if (now - lastAlertTimeRef.current < 3000) return;
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.pitch = 0.82;
+    utterance.rate = 1.12;
+    utterance.volume = 1;
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    lastAlertTimeRef.current = now;
+  }, []);
+
+  useEffect(() => {
+    if (!proximityAlert) return;
+    triggerVoiceAlert("Warning. Proximity Alert. Collision imminent.");
+  }, [proximityAlert, triggerVoiceAlert]);
 
   const addLog = useCallback((msg, type = "info") => {
     setLogs((prev) => [...prev, {
@@ -358,6 +393,7 @@ export default function LiveStream() {
         canvas.width, canvas.height,
         flashRef.current,
         showOverlayRef.current,
+        proximityRef.current,
       );
     }
     rafRef.current = requestAnimationFrame(drawLoop);
@@ -436,9 +472,17 @@ export default function LiveStream() {
             setDetections(dets);
             detectionsRef.current = dets;
 
+            const nearest = dets
+              .map((d) => Number(d?.distance || 0))
+              .filter((d) => Number.isFinite(d) && d > 0)
+              .reduce((min, d) => (d < min ? d : min), Infinity);
+            setClosestDistance(nearest === Infinity ? null : Number(nearest.toFixed(2)));
+
             const hazard = Boolean(data?.hazard_alert);
+            const proximity = Boolean(data?.proximity_alert);
             const cvec   = Boolean(data?.collision_vector);
             setHazardAlert(hazard);
+            setProximityAlert(proximity);
             setCollisionVec(cvec);
 
             if (hazard && !hazardLoggedRef.current) {
@@ -447,7 +491,7 @@ export default function LiveStream() {
             }
             if (cvec) addLog("⚡ COLLISION VECTOR — closing > 1 m/s", "danger");
 
-            setTelemetry(data?.telemetry ?? {});
+            setTelemetryData(data);
           } catch {
             addLog("Non-JSON WebSocket payload.", "warning");
           }
@@ -480,6 +524,9 @@ export default function LiveStream() {
       clearInterval(intervalRef.current);
       ws.current?.close();
       mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
     };
   }, [addLog, sendFrame]);
 
@@ -534,7 +581,7 @@ export default function LiveStream() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1 min-h-[500px]">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1 min-h-125">
 
         {/* ── Video + HUD ──────────────────────────────────────────────────── */}
         <div className="lg:col-span-3 flex flex-col h-full">
@@ -542,7 +589,7 @@ export default function LiveStream() {
             <div className="bg-[#050505] flex-1 relative flex items-center justify-center overflow-hidden m-1.5 rounded-[0.8rem] border border-white/5">
 
               {/* Subtle grid */}
-              <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none mix-blend-overlay" />
+              <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-size-[40px_40px] pointer-events-none mix-blend-overlay" />
 
               {/* Status badges */}
               <div className="absolute top-4 left-4 flex gap-2 z-20 flex-wrap">
@@ -588,6 +635,49 @@ export default function LiveStream() {
                 </div>
               )}
 
+              {/* Proximity warning state */}
+              {proximityAlert && showOverlay && (
+                <>
+                  <div className="absolute inset-0 z-20 pointer-events-none bg-red-500/20 animate-pulse" />
+                  <div className="absolute top-6 left-1/2 -translate-x-1/2 z-9999 pointer-events-none">
+                    <div className="rounded-2xl border-2 border-red-300 bg-red-600 px-8 py-4 shadow-[0_0_40px_rgba(239,68,68,0.85)]">
+                      <p className="text-center text-white font-black text-lg tracking-[0.08em] uppercase">
+                        ⚠️ PROXIMITY WARNING - IMMINENT COLLISION
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Tactical Distance Gauge */}
+              {showOverlay && (
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30 pointer-events-none">
+                  <div className="w-24 rounded-2xl border border-white/10 bg-black/60 px-3 py-3 backdrop-blur-md shadow-2xl">
+                    <p className="mb-1 text-center text-[9px] font-black uppercase tracking-widest text-zinc-500">TGT DIST</p>
+                    <p className="mb-3 text-center text-xs font-black tabular-nums text-white">
+                      {closestDistance !== null ? `${closestDistance}m` : "--"}
+                    </p>
+                    <div className="mx-auto flex h-44 w-4 items-end overflow-hidden rounded-full border border-white/10 bg-zinc-900/90">
+                      <div
+                        className={`w-full transition-all duration-300 ${
+                          closestDistance !== null && closestDistance < 2
+                            ? "bg-red-500"
+                            : closestDistance !== null && closestDistance <= 5
+                            ? "bg-yellow-400"
+                            : "bg-green-500"
+                        }`}
+                        style={{
+                          height:
+                            closestDistance === null
+                              ? "0%"
+                              : `${Math.max(0, Math.min(100, ((10 - closestDistance) / 10) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* ── Video element — base layer ─────────────────────────── */}
               <video
                 ref={videoRef}
@@ -621,7 +711,7 @@ export default function LiveStream() {
         </div>
 
         {/* ── Telemetry panel ──────────────────────────────────────────────── */}
-        <div className="lg:col-span-1 h-full min-h-[400px]">
+        <div className="lg:col-span-1 h-full min-h-100">
           <Card className="h-full flex flex-col glass-card border-none shadow-2xl overflow-hidden relative">
             <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-zinc-500 to-transparent" />
 
@@ -686,13 +776,13 @@ export default function LiveStream() {
                 {/* Raw telemetry */}
                 <div className="rounded-lg border border-white/10 bg-black/40 p-3 text-zinc-400">
                   <p className="text-[9px] uppercase tracking-widest text-zinc-600 mb-2">
-                    {telemetry?.providerTitle || "System Loading..."}
+                    {telemetryData?.providerTitle || "System Loading..."}
                   </p>
-                  {Object.keys(telemetry).length === 0 ? (
+                  {Object.keys(telemetryData).length === 0 ? (
                     <p className="text-gray-500 italic text-[10px]">Initializing Neural Engine...</p>
                   ) : (
-                    <pre className="max-h-32 overflow-auto text-[10px] whitespace-pre-wrap break-words">
-                      {JSON.stringify(telemetry, null, 2)}
+                    <pre ref={telemetryPreRef} className="max-h-40 overflow-auto text-[10px] whitespace-pre-wrap wrap-break-word">
+                      {JSON.stringify(telemetryData, null, 2)}
                     </pre>
                   )}
                 </div>

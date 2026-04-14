@@ -20,9 +20,9 @@ export default function Auth() {
 
     if (isAuthenticated && user) {
         if (user.is_admin || role === "admin") {
-            return <Navigate to="/admin/dashboard" replace />;
+            return <Navigate to="/admin/config" replace />;
         }
-        return <Navigate to="/overview" replace />;
+        return <Navigate to="/analytics" replace />;
     }
 
     const handleSubmit = async (e) => {
@@ -34,16 +34,16 @@ export default function Auth() {
             if (isLogin) {
                 const result = await login({ email, password, selectedRole });
                 if (result.role === "admin") {
-                    navigate("/admin/dashboard");
+                    navigate("/admin/config");
                 } else {
-                    navigate("/overview");
+                    navigate("/analytics");
                 }
             } else {
                 const result = await signup({ fullname, email, password });
                 if (result.role === "admin") {
-                    navigate("/admin/dashboard");
+                    navigate("/admin/config");
                 } else {
-                    navigate("/overview");
+                    navigate("/analytics");
                 }
             }
         } catch (err) {

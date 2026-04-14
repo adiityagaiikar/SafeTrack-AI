@@ -3,7 +3,10 @@ import {
   collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/services/firebase";
-import { CheckCircle, Flag, FileSearch, Clock, AlertTriangle, ShieldAlert } from "lucide-react";
+import { CheckCircle, Flag, FileSearch, Clock, AlertTriangle, ShieldAlert, Loader2 } from "lucide-react";
+
+const DISPATCH_SMS_ENDPOINT = "http://localhost:8000/api/dispatch/sms";
+const TEST_TARGET_PHONE_NUMBER = "+918879832851";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -132,19 +135,39 @@ export default function ReportAuditQueue() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // ── Approve & Archive ─────────────────────────────────────────────────────
+  // ── Approve & Escalate ───────────────────────────────────────────────────
   const handleApprove = async () => {
     if (!selected || actionLoading) return;
     setActionLoading(true);
+
+    const activeIncident = selected;
+
     try {
-      await updateDoc(doc(db, "accidents", selected.docId), {
-        status:      "archived",
+      await updateDoc(doc(db, "accidents", activeIncident.docId), {
+        status:      "dispatched",
         reviewedAt:  serverTimestamp(),
-        reviewAction: "approved",
+        reviewAction: "escalated",
       });
-      showToast(`${selected.id} approved and archived.`, "success");
+
+      const dispatchResponse = await fetch(DISPATCH_SMS_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          incident_id: activeIncident.id,
+          severity: activeIncident.severity,
+          target_phone_number: TEST_TARGET_PHONE_NUMBER,
+        }),
+      });
+
+      if (!dispatchResponse.ok) {
+        throw new Error(`Dispatch API failed with status ${dispatchResponse.status}`);
+      }
+
+      showToast("Dispatch SMS Sent Successfully.", "success");
     } catch (e) {
-      showToast("Failed to archive report.", "error");
+      showToast("Database updated, but SMS Dispatch Failed.", "error");
     } finally {
       setActionLoading(false);
     }
@@ -173,7 +196,7 @@ export default function ReportAuditQueue() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-6 right-6 z-[9999] flex items-center gap-3 px-5 py-3.5 rounded-2xl border shadow-2xl animate-in fade-in slide-in-from-top-4 duration-300 ${
+        <div className={`fixed top-6 right-6 z-9999 flex items-center gap-3 px-5 py-3.5 rounded-2xl border shadow-2xl animate-in fade-in slide-in-from-top-4 duration-300 ${
           toast.type === "success" ? "bg-emerald-950 border-emerald-500/40 text-emerald-300" :
           toast.type === "warning" ? "bg-orange-950 border-orange-500/40 text-orange-300" :
                                      "bg-red-950 border-red-500/40 text-red-300"
@@ -306,8 +329,8 @@ export default function ReportAuditQueue() {
                   disabled={actionLoading || !selected}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-sm hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_28px_rgba(16,185,129,0.5)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <CheckCircle className="w-4 h-4" />
-                  {actionLoading ? "Processing…" : "Approve & Archive"}
+                  {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  {actionLoading ? "Escalating..." : "Approve & Escalate"}
                 </button>
                 <button
                   onClick={handleFlag}

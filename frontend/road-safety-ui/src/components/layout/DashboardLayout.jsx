@@ -26,14 +26,15 @@ export default function DashboardLayout() {
     { name: "Live Stream",         path: "/stream",             icon: Video },
     { name: "Upload Video",        path: "/upload",             icon: UploadCloud },
     { name: "Accident Logs",       path: "/incidents",          icon: FileText,   adminOnly: true },
-    { name: "Behavior Analytics",  path: "/analytics",          icon: Car,        adminOnly: true },
-    { name: "Predictive Routing",  path: "/predictive-routing", icon: Route,      adminOnly: true },
-    { name: "Billing",             path: "/billing",            icon: CreditCard, adminOnly: true },
+    { name: "Behavior Analytics",  path: "/analytics",          icon: Car },
+    { name: "Predictive Routing",  path: "/predictive-routing", icon: Route },
+    { name: "Billing",             path: "/billing",            icon: CreditCard, userOnly: true },
     { name: "Settings",            path: "/settings",           icon: Settings },
   ];
 
   const visibleNavItems = navItems.filter((item) => {
     if (item.adminOnly && !isAdmin) return false;
+    if (item.userOnly && isAdmin) return false;
     return true;
   });
 

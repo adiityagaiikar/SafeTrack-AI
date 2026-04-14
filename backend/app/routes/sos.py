@@ -11,6 +11,7 @@ router = APIRouter()
 
 class SOSDispatchRequest(BaseModel):
     userId: Optional[str] = None
+    incident_id: Optional[str] = None
     coordinates: Optional[dict] = None
     severity: str
     cloudinaryVideoUrl: Optional[str] = None
@@ -24,6 +25,7 @@ async def dispatch_sos(request: SOSDispatchRequest, user: dict = Depends(get_cur
     payload = {
         "userId": user["uid"],
         "requestedUserId": request.userId,
+        "incident_id": request.incident_id,
         "severity": request.severity,
         "coordinates": request.coordinates,
         "cloudinaryVideoUrl": request.cloudinaryVideoUrl,

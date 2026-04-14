@@ -44,7 +44,7 @@ function AdminRoute({ children }) {
     return (
       <>
         {toastVisible && (
-          <div className="fixed top-6 right-6 z-[9999] flex items-center gap-3 px-5 py-3.5 rounded-2xl bg-red-950 border border-red-500/40 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="fixed top-6 right-6 z-9999 flex items-center gap-3 px-5 py-3.5 rounded-2xl bg-red-950 border border-red-500/40 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-in fade-in slide-in-from-top-4 duration-300">
             <span className="text-red-400 text-lg">🔒</span>
             <div>
               <p className="text-sm font-black text-red-300 tracking-wide">Access Denied</p>
@@ -83,6 +83,12 @@ function ConnectivitySyncBridge() {
   return null;
 }
 
+function RoleHomeRedirect() {
+  const { role, user } = useAuth();
+  const isAdmin = role === "admin" || user?.is_admin === true;
+  return <Navigate to={isAdmin ? "/admin/config" : "/analytics"} replace />;
+}
+
 function AppRoutes() {
   return (
     <>
@@ -98,20 +104,20 @@ function AppRoutes() {
               <Route path="dispatch" element={<DispatchRouting />} />
               <Route path="reports" element={<ReportAuditQueue />} />
               <Route path="users" element={<UserManagement />} />
-              <Route index element={<Navigate to="/admin/dashboard" replace />} />
+              <Route index element={<Navigate to="/admin/config" replace />} />
             </Route>
           </Route>
 
           <Route element={<ProtectedRoute allowedRoles={["user", "admin"]} />}>
             <Route path="/" element={<DashboardLayout />}>
-              <Route index element={<Navigate to="/overview" replace />} />
+              <Route index element={<RoleHomeRedirect />} />
               <Route path="overview" element={<Overview />} />
               <Route path="stream" element={<LiveStream />} />
               <Route path="upload" element={<VideoUpload />} />
               <Route path="incidents" element={<AdminRoute><IncidentLog /></AdminRoute>} />
-              <Route path="analytics" element={<AdminRoute><BehaviorAnalytics /></AdminRoute>} />
-              <Route path="predictive-routing" element={<AdminRoute><PredictiveRouting /></AdminRoute>} />
-              <Route path="billing" element={<AdminRoute><Billing /></AdminRoute>} />
+              <Route path="analytics" element={<BehaviorAnalytics />} />
+              <Route path="predictive-routing" element={<PredictiveRouting />} />
+              <Route path="billing" element={<Billing />} />
               <Route path="settings" element={<Settings />} />
             </Route>
           </Route>

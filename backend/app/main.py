@@ -38,7 +38,9 @@ REAL_WORLD_CAR_WIDTH = 1.8   # metres  (average vehicle width)
 FOCAL_LENGTH         = 700   # pixels  (empirically calibrated)
 HAZARD_DISTANCE      = 3.0   # metres  — triggers full hazard alert
 PROXIMITY_DISTANCE   = 5.0   # metres  — triggers proximity warning
-VEHICLE_CLASSES      = [2, 3, 5, 7]  # COCO: car, motorcycle, bus, truck
+PROXIMITY_TEST_DISTANCE = 2.0  # metres — aggressive indoor testing threshold
+PERSON_WIDTH_RATIO_TEST = 0.40 # % of frame width — coarse near-object fallback
+TRACKED_CLASSES      = [0, 2, 3, 5, 7]  # COCO: person, car, motorcycle, bus, truck
 FRAME_SKIP           = 2     # process every Nth frame per connection
 
 # Confidence thresholds — kept in sync with detection/detection.py
@@ -158,7 +160,7 @@ async def live_video_feed(websocket: WebSocket):
                         conf=CONF_GENERAL,
                         iou=_LIVE_IOU,
                         verbose=False,
-                        classes=VEHICLE_CLASSES,
+                        classes=TRACKED_CLASSES,
                     )
 
                     if results and results[0].boxes is not None:
@@ -171,6 +173,8 @@ async def live_video_feed(websocket: WebSocket):
                             confidence      = round(float(box.conf.item()), 3)
                             x1, y1, x2, y2 = [round(float(v), 1) for v in box.xyxy[0].tolist()]
                             pixel_width     = x2 - x1
+                            frame_width_px  = max(float(frame.shape[1]), 1.0)
+                            width_ratio     = round(pixel_width / frame_width_px, 4)
                             distance        = calculate_spatial_data(pixel_width)
                             label           = _yolo_model.names.get(cls_idx, f"cls_{cls_idx}")
 
@@ -191,10 +195,12 @@ async def live_video_feed(websocket: WebSocket):
 
                             detections.append({
                                 "id":           track_id,
+                                "class_id":     cls_idx,
                                 "label":        label,
                                 "confidence":   confidence,
                                 "is_critical":  confidence >= CONF_CRITICAL,
                                 "distance":     distance,
+                                "bbox_width_ratio": width_ratio,
                                 "velocity":     velocity_kmh,   # km/h, negative = approaching
                                 "status":       status,
                                 "box":          [x1, y1, x2, y2],
@@ -219,6 +225,16 @@ async def live_video_feed(websocket: WebSocket):
                 for d in detections
             )
 
+            # Testing mode (indoor webcam): treat person class as vehicle proxy.
+            person_proximity_alert = any(
+                d.get("class_id") == 0 and (
+                    (d["distance"] > 0 and d["distance"] < PROXIMITY_TEST_DISTANCE)
+                    or (d.get("bbox_width_ratio", 0) >= PERSON_WIDTH_RATIO_TEST)
+                )
+                for d in detections
+            )
+            proximity_alert = proximity_alert or person_proximity_alert
+
             # collision_vector: true if any tracked vehicle is closing faster
             # than 1 m/s (velocity is stored as km/h, negative = approaching)
             collision_vector = any(
@@ -238,6 +254,7 @@ async def live_video_feed(websocket: WebSocket):
                     "vehicle_count":    len(detections),
                     "hazard_alert":     hazard_alert,
                     "proximity_alert":  proximity_alert,
+                    "person_proximity_alert": person_proximity_alert,
                     "collision_vector": collision_vector,
                     "tracked_ids":      [d["id"] for d in detections],
                     "frame_time_ms":    round(frame_time * 1000, 1),
@@ -251,7 +268,7 @@ async def live_video_feed(websocket: WebSocket):
 
 
 # ── Routers ────────────────────────────────────────────────────────────────────
-from app.routes import video, user, report, payment, sos, analytics, model_config
+from app.routes import video, user, report, payment, sos, analytics, model_config, dispatch
 app.include_router(video.router,         prefix="/api/video",   tags=["Video"])
 app.include_router(user.router,          prefix="/api/user",    tags=["User"])
 app.include_router(report.router,        prefix="/api/report",  tags=["Report"])
@@ -259,3 +276,4 @@ app.include_router(payment.router,       prefix="/api/payment", tags=["Payment"]
 app.include_router(sos.router,           prefix="/api/sos",     tags=["SOS"])
 app.include_router(analytics.router,     prefix="/api",         tags=["Analytics"])
 app.include_router(model_config.router,  prefix="/api",         tags=["Model Config"])
+app.include_router(dispatch.router,      prefix="/api/dispatch", tags=["Dispatch"])
