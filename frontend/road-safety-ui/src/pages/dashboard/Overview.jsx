@@ -128,14 +128,9 @@ function SeverityBadge({ severity }) {
   );
 }
 
-// ─── Edge Node Status ─────────────────────────────────────────────────────────
-const EDGE_NODES = [
-  { id: "NODE-ALPHA", loc: "Thane West",    status: "Online",  latency: "12ms",  uptime: "99.9%" },
-  { id: "NODE-BETA",  loc: "Mumbai Hwy",    status: "Warning", latency: "145ms", uptime: "98.2%" },
-  { id: "NODE-GAMMA", loc: "Pune Exp",      status: "Offline", latency: "—",     uptime: "81.4%" },
-  { id: "NODE-DELTA", loc: "Navi Mumbai",   status: "Online",  latency: "8ms",   uptime: "99.7%" },
-];
+import { useEdgeNodes } from "@/hooks/useEdgeNodes";
 
+// ─── Edge Node Status Components ─────────────────────────────────────────────
 function NodeStatusDot({ status }) {
   if (status === "Online")
     return (
@@ -154,7 +149,7 @@ function NodeStatusDot({ status }) {
   return <span className="inline-flex rounded-full h-2.5 w-2.5 bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]" />;
 }
 
-function EdgeNodeStatus() {
+function EdgeNodeStatus({ nodes, loading }) {
   return (
     <Card className="glass-card border-white/5 bg-slate-800/50 shadow-2xl overflow-hidden">
       <CardHeader className="border-b border-white/5 pb-4 pt-5 px-6 bg-black/40 backdrop-blur-md flex flex-row items-center justify-between">
@@ -167,57 +162,50 @@ function EdgeNodeStatus() {
           </CardTitle>
         </div>
         <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
-          {EDGE_NODES.filter((n) => n.status === "Online").length}/{EDGE_NODES.length} Online
+          {loading ? "..." : `${nodes.filter((n) => n.status === "Online").length}/${nodes.length} Online`}
         </span>
       </CardHeader>
       <CardContent className="p-0">
-        {/* Column headers */}
-        <div className="grid grid-cols-[1fr_80px_80px_80px_80px] border-b border-white/5 px-6">
-          {["Node ID", "Location", "Status", "Latency", "Uptime"].map((h, i) => (
-            <div key={h} className={`py-3 text-[9px] font-black uppercase tracking-widest text-zinc-600 ${i > 0 ? "text-right" : ""}`}>
-              {h}
+        {loading ? (
+          <div className="p-8 text-center text-zinc-500 animate-pulse font-mono text-xs uppercase tracking-widest">
+            Establishing secure connection to edge nodes...
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-[1fr_80px_80px_80px_80px] border-b border-white/5 px-6">
+              {["Node ID", "Location", "Status", "Latency", "Uptime"].map((h, i) => (
+                <div key={h} className={`py-3 text-[9px] font-black uppercase tracking-widest text-zinc-600 ${i > 0 ? "text-right" : ""}`}>
+                  {h}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        {EDGE_NODES.map((node) => {
-          const statusColor =
-            node.status === "Online"  ? "text-green-400" :
-            node.status === "Warning" ? "text-amber-400" : "text-red-400";
-          const rowBg =
-            node.status === "Offline" ? "bg-red-500/[0.04]" :
-            node.status === "Warning" ? "bg-amber-500/[0.04]" : "";
-          return (
-            <div
-              key={node.id}
-              className={`grid grid-cols-[1fr_80px_80px_80px_80px] border-b border-white/5 last:border-0 px-6 items-center hover:bg-white/[0.03] transition-colors ${rowBg}`}
-            >
-              <div className="py-4 flex items-center gap-2.5">
-                <NodeStatusDot status={node.status} />
-                <span className="font-mono text-sm font-black text-white">{node.id}</span>
-              </div>
-              <div className="py-4 text-right">
-                <span className="text-xs text-zinc-400 flex items-center justify-end gap-1">
-                  <MapPin className="w-3 h-3 text-zinc-600" />{node.loc}
-                </span>
-              </div>
-              <div className="py-4 text-right">
-                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${
-                  node.status === "Online"  ? "bg-green-500/10 text-green-400 border-green-500/20" :
-                  node.status === "Warning" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
-                                              "bg-red-500/10 text-red-400 border-red-500/20"
-                }`}>
-                  {node.status}
-                </span>
-              </div>
-              <div className="py-4 text-right">
-                <span className={`font-mono text-xs font-bold ${statusColor}`}>{node.latency}</span>
-              </div>
-              <div className="py-4 text-right">
-                <span className={`font-mono text-xs font-bold ${statusColor}`}>{node.uptime}</span>
-              </div>
-            </div>
-          );
-        })}
+            {nodes.map((node) => {
+              const statusColor =
+                node.status === "Online"  ? "text-green-400" :
+                node.status === "Warning" ? "text-amber-400" : "text-red-400";
+              return (
+                <div key={node.id} className="grid grid-cols-[1fr_80px_80px_80px_80px] border-b border-white/5 last:border-0 px-6 items-center hover:bg-white/[0.03] transition-colors">
+                  <div className="py-4 flex items-center gap-2.5">
+                    <NodeStatusDot status={node.status} />
+                    <span className="font-mono text-sm font-black text-white">{node.id}</span>
+                  </div>
+                  <div className="py-4 text-right">
+                    <span className="text-xs text-zinc-400">{node.loc}</span>
+                  </div>
+                  <div className="py-4 text-right">
+                    <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${
+                      node.status === "Online"  ? "bg-green-500/10 text-green-400 border-green-500/20" : "bg-red-500/10 text-red-400 border-red-500/20"
+                    }`}>
+                      {node.status}
+                    </span>
+                  </div>
+                  <div className="py-4 text-right"><span className="font-mono text-xs font-bold text-zinc-400">{node.latency}</span></div>
+                  <div className="py-4 text-right"><span className="font-mono text-xs font-bold text-zinc-400">{node.uptime}</span></div>
+                </div>
+              );
+            })}
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -333,12 +321,15 @@ function CommandOverrides() {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Overview() {
-  const { incidents, loading, error, metrics } = useIncidents("accidents");
-  const [exportingId,            setExportingId]            = useState(null);
+  const { incidents, loading: incLoading, error, metrics } = useIncidents("accidents");
+  const { nodes, loading: nodeLoading } = useEdgeNodes();
+  const [exportingId, setExportingId] = useState(null);
+
+  const loading = incLoading || nodeLoading;
 
   // Dynamic KPI calculations
   const collisions24h  = metrics.collisions24h;
-  const activeFeeds    = metrics.activeFeeds || 1;
+  const activeFeeds    = metrics.activeFeeds || nodes.length;
   const systemHealth   = error ? "Degraded" : "99.9%";
   const healthColor    = error ? "text-red-400" : "text-green-400";
 
@@ -592,7 +583,7 @@ export default function Overview() {
       {/* ── Edge Infrastructure + Command Overrides ────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <EdgeNodeStatus />
+          <EdgeNodeStatus nodes={nodes} loading={nodeLoading} />
         </div>
         <div className="lg:col-span-1">
           <CommandOverrides />

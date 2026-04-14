@@ -32,7 +32,7 @@ export default function Auth() {
 
         try {
             if (isLogin) {
-                const result = await login({ email, password, selectedRole });
+                const result = await login({ email, password });
                 if (result.role === "admin") {
                     navigate("/admin/config");
                 } else {
@@ -110,8 +110,8 @@ export default function Auth() {
                                         Admin Login
                                     </Button>
                                 </div>
-                                <p className="text-xs text-zinc-500">
-                                    Dummy User: operator@roadsafety.local / user123 | Dummy Admin: admin@roadsafety.local / admin123
+                                <p className="text-[10px] text-zinc-500 font-medium font-mono uppercase tracking-widest">
+                                    Identity verified via secure infrastructure protocol.
                                 </p>
                             </div>
                         )}

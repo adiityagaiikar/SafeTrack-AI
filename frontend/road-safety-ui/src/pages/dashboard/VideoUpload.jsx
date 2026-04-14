@@ -70,20 +70,23 @@ export default function VideoUpload() {
     const confidence = typeof confidenceRaw === "number"
       ? (confidenceRaw <= 1 ? confidenceRaw * 100 : confidenceRaw)
       : null;
-    const report =
-      raw?.report?.summary ||
-      raw?.report?.recommendation ||
-      raw?.gemini_report ||
-      raw?.ai_summary ||
-      raw?.summary ||
-      raw?.message ||
-      "Analysis completed, but no summary text was returned.";
+      
+    // Default summary
+    let reportSummary = raw?.message || "Analysis completed.";
+    if (raw?.report) {
+        if (typeof raw.report === 'object' && raw.report.summary) {
+            reportSummary = raw.report.summary;
+        } else if (typeof raw.report === 'string') {
+            reportSummary = raw.report;
+        }
+    }
 
     return {
       raw,
       detected,
       confidence,
-      report,
+      reportText: reportSummary,
+      fullReportJson: raw?.report || null,
       severity: raw?.severity || "UNKNOWN",
       analysisId: Date.now(),
     };
@@ -168,7 +171,7 @@ export default function VideoUpload() {
       if (userRef) {
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
-          emergencyContacts = userSnap.data()?.emergencyContacts || [];
+          emergencyContacts = userSnap.data()?.contacts || [];
         }
       }
 
@@ -390,9 +393,24 @@ export default function VideoUpload() {
                   </span>
                 </div>
 
-                <div className="rounded-md border border-zinc-700 bg-zinc-800/60 p-4">
-                  <p className="text-xs uppercase tracking-wide text-zinc-400 mb-2">AI Summary / Report</p>
-                  <p className="text-sm leading-6 text-zinc-200 whitespace-pre-wrap">{analysisResult.report}</p>
+                <div className="rounded-md border border-zinc-700 bg-zinc-800/60 p-4 relative">
+                  <div className="flex justify-between items-center mb-2">
+                      <p className="text-xs uppercase tracking-wide text-zinc-400">AI Summary / Report</p>
+                      {analysisResult.fullReportJson && (
+                          <Button 
+                              size="sm" 
+                              className="bg-blue-600 hover:bg-blue-500 text-white"
+                              onClick={() => {
+                                  import("@/utils/pdfGenerator").then(module => {
+                                      module.generateIncidentPDF(analysisResult.fullReportJson);
+                                  });
+                              }}
+                          >
+                              Download PDF Report
+                          </Button>
+                      )}
+                  </div>
+                  <p className="text-sm leading-6 text-zinc-200 whitespace-pre-wrap">{analysisResult.reportText}</p>
                 </div>
               </CardContent>
             </Card>

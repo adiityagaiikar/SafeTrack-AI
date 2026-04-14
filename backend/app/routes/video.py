@@ -17,6 +17,8 @@ async def detect_accident_route(request: DetectRequest, user: dict = Depends(get
         raise HTTPException(status_code=400, detail="video_url is required")
         
     try:
+        from app.services.gemini_service import generate_accident_report_json
+        
         # 1. Processing the video through the YOLO wrapper
         detection_result = process_video_detection(str(request.video_url))
         
@@ -34,11 +36,17 @@ async def detect_accident_route(request: DetectRequest, user: dict = Depends(get
         }
         db.collection("accidents").document(accident_id).set(accident_data)
         
-        # 3. Simulate emergency SMS
+        gemini_report = None
         if accident_data["accidentDetected"]:
+            # Create a serializable version for Gemini
+            serializable_data = accident_data.copy()
+            serializable_data.pop("timestamp", None)
+            gemini_report = generate_accident_report_json(serializable_data)
+            
             user_doc = db.collection("users").document(user["uid"]).get()
             contacts = []
             if user_doc.exists:
+                # Harmonize with frontend: both should use 'contacts'
                 contacts = user_doc.to_dict().get("contacts", [])
             
             message = f"🚨 EMERGENCY: An accident involving {user.get('email', 'a user')} has been detected. Severity: {accident_data['severity']}"
@@ -47,6 +55,7 @@ async def detect_accident_route(request: DetectRequest, user: dict = Depends(get
         return {
             "accident": accident_data["accidentDetected"],
             "severity": accident_data["severity"],
+            "report": gemini_report,
             "message": "Detection processing completed successfully."
         }
     except Exception as e:

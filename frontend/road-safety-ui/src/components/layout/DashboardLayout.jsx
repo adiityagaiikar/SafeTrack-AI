@@ -12,6 +12,7 @@ import {
   LogOut,
   Bell,
   Gamepad2,
+  ChevronDown
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth.jsx";
 
@@ -158,6 +159,13 @@ export default function DashboardLayout() {
               </span>
               <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-widest">FastAPI Online</span>
             </div>
+            <button 
+              onClick={handleLogout}
+              className="p-2.5 rounded-full bg-linear-to-br from-zinc-800 to-zinc-950 border border-red-500/20 text-red-400 hover:text-white hover:bg-red-500 hover:border-red-500 transition-all shadow-sm group"
+              title="Terminate Session"
+            >
+              <LogOut className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
+            </button>
           </div>
         </header>
 

@@ -10,7 +10,6 @@ export const Topbar = () => {
 
     const handleLogout = () => {
         logout();
-        window.location.href = '/login';
     };
 
     return (

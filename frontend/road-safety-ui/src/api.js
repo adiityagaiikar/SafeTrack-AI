@@ -55,15 +55,16 @@ export const api = {
         return response.json();
     },
 
-    dispatchSOS: async (payload) => {
+    dispatchSOS: async (payload, token = null) => {
         let response;
 
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-            throw new Error('User must be logged in to dispatch SOS');
+        if (!token) {
+            const currentUser = auth.currentUser;
+            if (!currentUser) {
+                throw new Error('User must be logged in to dispatch SOS');
+            }
+            token = await currentUser.getIdToken(true);
         }
-
-        const token = await currentUser.getIdToken(true);
 
         try {
             response = await fetch(`${BASE_URL}/sos/dispatch`, {

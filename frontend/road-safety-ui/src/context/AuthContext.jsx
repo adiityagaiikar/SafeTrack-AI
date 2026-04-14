@@ -19,63 +19,49 @@ export function AuthProvider({ children }) {
 
   const resolveProfile = async (firebaseUser) => {
     const email = firebaseUser.email || "";
-    const fallbackIsAdmin =
-      email.toLowerCase() === "admin@roadsafety.local" ||
-      email.toLowerCase() === "adityaadmin@gmail.com";
-
     const resolvedName = firebaseUser.displayName || email.split("@")[0] || "User";
-    const displayName  = fallbackIsAdmin ? "System Administrator" : resolvedName;
 
     try {
       const userRef = doc(db, "users", firebaseUser.uid);
       const userSnap = await getDoc(userRef);
-      const profile = userSnap.exists() ? userSnap.data() : {};
-      const resolvedRole = profile.role || (fallbackIsAdmin ? "admin" : "user");
-
-      if (!userSnap.exists()) {
-        await setDoc(
-          userRef,
-          {
-            fullname: displayName,
-            email,
-            role: resolvedRole,
-            is_admin: resolvedRole === "admin",
-            contacts: [],
-            updatedAt: serverTimestamp(),
-            createdAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      } else if (profile.role !== resolvedRole || profile.fullname !== displayName) {
-        await setDoc(
-          userRef,
-          {
-            fullname: displayName,
-            email,
-            role: resolvedRole,
-            is_admin: resolvedRole === "admin",
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
+      
+      let profileData = {};
+      if (userSnap.exists()) {
+        profileData = userSnap.data();
+      } else {
+        // Default profile for new users
+        profileData = {
+          uid: firebaseUser.uid,
+          fullname: resolvedName,
+          email: email,
+          role: "user", // Default role
+          is_admin: false,
+          contacts: [],
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+        await setDoc(userRef, profileData);
       }
 
+      const role = profileData.role || "user";
+      const isAdmin = profileData.is_admin === true || role === "admin";
+
       return {
         uid: firebaseUser.uid,
         email,
-        fullname: profile.fullname || displayName,
-        role: resolvedRole,
-        is_admin: resolvedRole === "admin",
-        contacts: profile.contacts || [],
+        fullname: profileData.fullname || resolvedName,
+        role: role,
+        is_admin: isAdmin,
+        contacts: profileData.contacts || [],
       };
     } catch (error) {
-      console.warn("Failed to load Firestore profile, using fallback auth profile:", error);
+      console.warn("Firestore profile error:", error);
       return {
         uid: firebaseUser.uid,
         email,
-        fullname: displayName,
-        role: fallbackIsAdmin ? "admin" : "user",
-        is_admin: fallbackIsAdmin,
+        fullname: resolvedName,
+        role: "user",
+        is_admin: false,
         contacts: [],
       };
     }

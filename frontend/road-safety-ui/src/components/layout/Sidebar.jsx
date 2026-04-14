@@ -1,9 +1,12 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ShieldAlert, LayoutDashboard, Users, Brain, Route, FileSearch } from 'lucide-react';
+import { ShieldAlert, LayoutDashboard, Users, Brain, Route, FileSearch, LogOut } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 export const Sidebar = () => {
     const location = useLocation();
+    const { user, logout } = useAuth();
+    const displayName = user?.fullname || user?.email || "Administrator";
 
     const navItems = [
         {
@@ -34,6 +37,10 @@ export const Sidebar = () => {
     ];
 
     const isActive = (path) => location.pathname === path;
+
+    const handleLogout = () => {
+        logout();
+    };
 
     return (
         <aside className="w-72 glass border-r border-white/5 flex flex-col justify-between z-20 shadow-[4px_0_24px_-4px_rgba(0,0,0,0.5)]">
@@ -81,13 +88,25 @@ export const Sidebar = () => {
 
             {/* Footer */}
             <div className="p-6 border-t border-white/5 bg-black/20 backdrop-blur-md">
-                <div className="rounded-xl p-3 text-xs text-zinc-400 text-center border border-white/5 bg-zinc-900/50">
-                    <p className="font-semibold text-zinc-300 mb-1">System Status</p>
-                    <p className="flex items-center justify-center gap-2">
-                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                        Control Plane Online
-                    </p>
+                <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-zinc-900/50 hover:bg-zinc-800/80 cursor-pointer mb-4 transition-all border border-white/5 hover:border-white/10 hover:shadow-lg">
+                    <div className="relative">
+                        <div className="h-10 w-10 rounded-full border border-white/20 shadow-sm object-cover bg-linear-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold">
+                            {displayName?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-zinc-900"></div>
+                    </div>
+                    <div className="flex flex-col flex-1 min-w-0">
+                        <span className="text-sm font-bold text-white leading-none mb-1.5 truncate">{displayName}</span>
+                        <span className="text-[10px] font-bold tracking-wider text-zinc-400 uppercase leading-none">System Admin</span>
+                    </div>
                 </div>
+                <button 
+                    onClick={handleLogout}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-zinc-400 bg-black/40 border border-white/5 hover:bg-white hover:text-zinc-950 hover:border-white transition-all shadow-sm group"
+                >
+                    <LogOut className="h-4 w-4 group-hover:-translate-x-1 transition-transform" />
+                    Terminate Session
+                </button>
             </div>
         </aside>
     );

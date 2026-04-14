@@ -3,66 +3,10 @@ import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Badge } from '../../components/ui/badge';
+import { useUsers } from '../../hooks/useUsers';
 
 export const UserManagement = () => {
-    // Mock data - replace with API call later
-    const [users, setUsers] = useState([
-        {
-            id: 1,
-            name: 'John Anderson',
-            email: 'john.anderson@example.com',
-            role: 'Admin',
-            status: 'Active',
-            lastLogin: '2 hours ago',
-            joinDate: 'Jan 15, 2024',
-        },
-        {
-            id: 2,
-            name: 'Sarah Mitchell',
-            email: 'sarah.mitchell@example.com',
-            role: 'Operator',
-            status: 'Active',
-            lastLogin: '30 minutes ago',
-            joinDate: 'Jan 20, 2024',
-        },
-        {
-            id: 3,
-            name: 'Michael Chen',
-            email: 'michael.chen@example.com',
-            role: 'Operator',
-            status: 'Active',
-            lastLogin: '1 hour ago',
-            joinDate: 'Jan 18, 2024',
-        },
-        {
-            id: 4,
-            name: 'Emily Rodriguez',
-            email: 'emily.rodriguez@example.com',
-            role: 'Analyst',
-            status: 'Inactive',
-            lastLogin: '5 days ago',
-            joinDate: 'Jan 10, 2024',
-        },
-        {
-            id: 5,
-            name: 'David Thompson',
-            email: 'david.thompson@example.com',
-            role: 'Operator',
-            status: 'Active',
-            lastLogin: '45 minutes ago',
-            joinDate: 'Jan 22, 2024',
-        },
-        {
-            id: 6,
-            name: 'Lisa Park',
-            email: 'lisa.park@example.com',
-            role: 'Analyst',
-            status: 'Active',
-            lastLogin: '3 hours ago',
-            joinDate: 'Jan 12, 2024',
-        },
-    ]);
-
+    const { users, loading, error } = useUsers();
     const [selectedUsers, setSelectedUsers] = useState(new Set());
     const [showInviteModal, setShowInviteModal] = useState(false);
     const [inviteEmail, setInviteEmail] = useState('');

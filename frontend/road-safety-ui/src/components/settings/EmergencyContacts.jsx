@@ -33,10 +33,10 @@ export default function EmergencyContacts() {
       try {
         const snap = await getDoc(userRef);
         if (snap.exists()) {
-          const stored = (snap.data()?.emergencyContacts || []).slice(0, MAX_CONTACTS);
+          const stored = (snap.data()?.contacts || []).slice(0, MAX_CONTACTS);
           setContacts(stored.length > 0 ? stored : [""]);
         } else {
-          await setDoc(userRef, { emergencyContacts: [] }, { merge: true });
+          await setDoc(userRef, { contacts: [] }, { merge: true });
           setContacts([""]);
         }
       } catch (error) {
@@ -85,7 +85,7 @@ export default function EmergencyContacts() {
 
     try {
       setSaving(true);
-      await setDoc(userRef, { emergencyContacts: cleaned }, { merge: true });
+      await setDoc(userRef, { contacts: cleaned }, { merge: true });
       setContacts(cleaned.length > 0 ? cleaned : [""]);
       setMessage("Emergency contacts saved successfully.");
     } catch (error) {
