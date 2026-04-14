@@ -3,7 +3,10 @@ import os
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from twilio.rest import Client
+try:
+    from twilio.rest import Client
+except Exception:
+    Client = None
 
 load_dotenv()
 
@@ -18,6 +21,9 @@ class DispatchSMSRequest(BaseModel):
 
 @router.post("/sms")
 async def dispatch_sms(payload: DispatchSMSRequest):
+    if Client is None:
+        raise HTTPException(status_code=500, detail="Twilio package is not installed")
+
     twilio_sid = os.getenv("TWILIO_SID") or os.getenv("TWILIO_ACCOUNT_SID")
     twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN")
     twilio_phone_number = (

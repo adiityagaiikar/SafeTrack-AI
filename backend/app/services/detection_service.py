@@ -1,7 +1,6 @@
 import os
 import uuid
 import requests
-from detection.detection import detect_accident
 
 
 def process_video_detection(video_url: str) -> dict:
@@ -36,6 +35,8 @@ def process_video_detection(video_url: str) -> dict:
 
     # 2. Run detection pipeline and capture structured result
     try:
+        # Lazy import so backend can still boot even if heavy CV dependencies are missing.
+        from detection.detection import detect_accident
         result = detect_accident(local_path)
         return result
     except Exception as e:

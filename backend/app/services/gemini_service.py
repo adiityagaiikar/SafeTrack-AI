@@ -1,4 +1,7 @@
-import google.generativeai as genai
+try:
+    import google.generativeai as genai
+except Exception:
+    genai = None
 import json
 from app.core.config import settings
 
@@ -6,6 +9,9 @@ def generate_accident_report_json(accident_data: dict) -> dict:
     """
     Calls Google GenAI API to generate a structured JSON report.
     """
+    if genai is None:
+        return _fallback_report("google-generativeai package is not installed.")
+
     if not settings.GEMINI_API_KEY:
         return _fallback_report("Gemini API key is missing.")
 

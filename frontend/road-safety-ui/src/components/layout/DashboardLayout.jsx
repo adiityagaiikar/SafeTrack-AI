@@ -10,7 +10,8 @@ import {
   Route,
   CreditCard,
   LogOut,
-  Bell
+  Bell,
+  Gamepad2,
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth.jsx";
 
@@ -28,13 +29,13 @@ export default function DashboardLayout() {
     { name: "Accident Logs",       path: "/incidents",          icon: FileText,   adminOnly: true },
     { name: "Behavior Analytics",  path: "/analytics",          icon: Car },
     { name: "Predictive Routing",  path: "/predictive-routing", icon: Route },
-    { name: "Billing",             path: "/billing",            icon: CreditCard, userOnly: true },
+    { name: "Safety Simulator",    path: "/simulator",          icon: Gamepad2 },
+    { name: "Billing",             path: "/billing",            icon: CreditCard },
     { name: "Settings",            path: "/settings",           icon: Settings },
   ];
 
   const visibleNavItems = navItems.filter((item) => {
     if (item.adminOnly && !isAdmin) return false;
-    if (item.userOnly && isAdmin) return false;
     return true;
   });
 

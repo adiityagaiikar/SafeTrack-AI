@@ -243,41 +243,133 @@ export const downloadInsurancePDF = async (incidentData) => {
 
   y += 16;
 
-  const imgX = margin;
-  const imgY = y + 4;
-  const imgW = pageWidth - margin * 2;
-  const imgH = 170;
+  // ── Snapshot grid: up to 4 images (2x2 layout) ────────────────────────────
+  const allSnapshots = [];
 
-  let imageAdded = false;
-  try {
-    const imageDataUrl = await getBase64ImageFromURL(incidentData.snapshotUrl);
-    if (imageDataUrl) {
-      doc.addImage(imageDataUrl, "JPEG", imgX, imgY, imgW, imgH);
-      imageAdded = true;
-    }
-  } catch {
-    imageAdded = false;
+  // Collect all available snapshots
+  if (incidentData.snapshotUrl)    allSnapshots.push({ src: incidentData.snapshotUrl,    type: "url" });
+  if (incidentData.snapshot_base64) allSnapshots.push({ src: incidentData.snapshot_base64, type: "b64" });
+  if (Array.isArray(incidentData.snapshots)) {
+    incidentData.snapshots.forEach((s) => { if (s) allSnapshots.push({ src: s, type: "b64" }); });
   }
+  // Deduplicate and cap at 4
+  const uniqueSnaps = [...new Map(allSnapshots.map((s) => [s.src.slice(0, 40), s])).values()].slice(0, 4);
 
-  if (!imageAdded) {
+  if (uniqueSnaps.length === 0) {
+    // No snapshots — placeholder
+    const ph = { x: margin, y: y + 4, w: pageWidth - margin * 2, h: 140 };
     doc.setFillColor(241, 245, 249);
-    doc.rect(imgX, imgY, imgW, imgH, "F");
+    doc.rect(ph.x, ph.y, ph.w, ph.h, "F");
     doc.setDrawColor(200, 200, 200);
-    doc.rect(imgX, imgY, imgW, imgH);
+    doc.rect(ph.x, ph.y, ph.w, ph.h);
     doc.setFont("helvetica", "italic");
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
-    doc.text("Snapshot unavailable (CORS restriction or no frame captured).", imgX + 12, imgY + 22);
+    doc.text("No snapshot available — frame not captured at time of incident.", ph.x + 12, ph.y + 22);
+    y = ph.y + ph.h + 20;
+  } else {
+    // Layout: 1 image = full width; 2-4 images = 2-column grid
+    const cols    = uniqueSnaps.length === 1 ? 1 : 2;
+    const rows    = Math.ceil(uniqueSnaps.length / cols);
+    const gap     = 8;
+    const imgW    = (pageWidth - margin * 2 - gap * (cols - 1)) / cols;
+    const imgH    = uniqueSnaps.length === 1 ? 200 : 140;
+
+    for (let i = 0; i < uniqueSnaps.length; i++) {
+      const col  = i % cols;
+      const row  = Math.floor(i / cols);
+      const ix   = margin + col * (imgW + gap);
+      const iy   = y + 4 + row * (imgH + gap + 16);
+
+      // Check page overflow
+      if (iy + imgH > pageHeight - 80) {
+        doc.addPage();
+        drawWatermark(doc, pageWidth, pageHeight);
+        y = margin;
+      }
+
+      const snap = uniqueSnaps[i];
+      let imgData = null;
+
+      try {
+        if (snap.type === "url") {
+          imgData = await getBase64ImageFromURL(snap.src);
+        } else {
+          imgData = snap.src; // already base64
+        }
+      } catch { imgData = null; }
+
+      if (imgData) {
+        doc.addImage(imgData, "JPEG", ix, iy, imgW, imgH);
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(ix, iy, imgW, imgH);
+      } else {
+        doc.setFillColor(241, 245, 249);
+        doc.rect(ix, iy, imgW, imgH, "F");
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(ix, iy, imgW, imgH);
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text("Frame unavailable", ix + 8, iy + 20);
+      }
+
+      // Caption
+      const tLabel = i === 0 ? "T+0ms (Impact)" : `T+${i * 300}ms`;
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Fig ${i + 1}: ${tLabel} — YOLOv8 Burst Capture`, ix, iy + imgH + 11);
+    }
+
+    y = y + 4 + rows * (imgH + gap + 16) + 14;
   }
 
-  doc.setDrawColor(200, 200, 200);
-  doc.rect(imgX, imgY, imgW, imgH);
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139);
-  doc.text("Fig 1: YOLOv8 Spatial Analysis Snapshot — Bounding Box Overlay", imgX, imgY + imgH + 13);
+  // ── Section 2b: Geospatial Location ───────────────────────────────────────
+  if (y + 80 > pageHeight - 80) {
+    doc.addPage();
+    drawWatermark(doc, pageWidth, pageHeight);
+    y = margin;
+  }
 
-  y = imgY + imgH + 30;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text("2b. GEOSPATIAL LOCATION", margin, y);
+  doc.setDrawColor(249, 115, 22);
+  doc.setLineWidth(1);
+  doc.line(margin, y + 4, margin + 160, y + 4);
+  doc.setLineWidth(0.4);
+  doc.setDrawColor(200, 200, 200);
+
+  y += 18;
+
+  const coordRows = [
+    ["GPS Coordinates",  safeText(incidentData.coordinates || incidentData.location)],
+    ["Latitude",         safeText(incidentData.lat != null ? `${incidentData.lat}°` : null)],
+    ["Longitude",        safeText(incidentData.lng != null ? `${incidentData.lng}°` : null)],
+    ["Google Maps",      incidentData.lat && incidentData.lng
+                           ? `maps.google.com/?q=${incidentData.lat},${incidentData.lng}`
+                           : "N/A"],
+  ];
+
+  drawMetaGrid(doc, margin, y, rowH, colW, coordRows);
+  coordRows.forEach((row, i) => {
+    const rowY = y + rowH * i + 15.5;
+    doc.setFillColor(30, 41, 59);
+    doc.rect(margin, y + rowH * i, colW, rowH, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(249, 115, 22);
+    doc.text(row[0].toUpperCase(), margin + 8, rowY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    const val = doc.splitTextToSize(row[1], colW - 16)[0] || row[1];
+    doc.text(val, margin + colW + 8, rowY);
+  });
+
+  y += rowH * coordRows.length + 28;
 
   // ── Section 3: AI Forensic Analysis ───────────────────────────────────────
   doc.setFont("helvetica", "bold");

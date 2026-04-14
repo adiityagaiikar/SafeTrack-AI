@@ -1,8 +1,10 @@
 import { useMemo, useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useIncidents } from "@/hooks/useIncidents";
+import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/api";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db } from "@/services/firebase";
 import {
   ResponsiveContainer,
   BarChart,
@@ -22,8 +24,16 @@ import {
 } from "recharts";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const SEVERITY_PENALTY = { Minor: 10, Moderate: 25, Severe: 45 };
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MOCK_DRIVERS = ["Priya", "Sarah", "Rahul", "Michael"];
+
+function makeEmptyHourlyData() {
+  return Array.from({ length: 24 }, (_, hour) => ({ hour, incidents: 0 }));
+}
+
+function makeEmptyWeeklyData() {
+  return DAYS.map((day) => ({ day, incidents: 0 }));
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,18 +54,64 @@ function classifyAnomaly(incident) {
   return incident.accidentDetected ? "Collision" : "Other";
 }
 
-function severityScore(incident) {
-  return Math.max(
-    0,
-    100 - (SEVERITY_PENALTY[incident.severity] || 15) - (incident.accidentDetected ? 10 : 0)
-  );
+function normalizeSeverity(value) {
+  const text = String(value || "").toLowerCase();
+  if (text.includes("critical") || text.includes("severe") || text.includes("high")) return "Critical";
+  if (text.includes("moderate") || text.includes("medium")) return "Moderate";
+  return "Minor";
+}
+
+function toDateValue(rawTs) {
+  if (!rawTs) return null;
+  if (typeof rawTs?.toDate === "function") return rawTs.toDate();
+
+  const parsed = new Date(rawTs);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getIncidentConfidence(raw) {
+  const value = raw?.confidence ?? raw?.yoloConfidence ?? raw?.score ?? null;
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value <= 1 ? value * 100 : value;
+}
+
+function computeSafetyScoreFromSeverity(severity) {
+  if (severity === "Critical") return 60;
+  if (severity === "Moderate") return 82;
+  return 95;
 }
 
 function safetyScoreColor(score) {
   if (score === null) return "#71717a";
-  if (score >= 75) return "#22c55e";
-  if (score >= 50) return "#f97316";
+  if (score > 80) return "#22c55e";
+  if (score > 60) return "#facc15";
   return "#ef4444";
+}
+
+function buildDriverScores(baseScore, incidentCount, operatorName) {
+  const safeBase = Number.isFinite(baseScore) ? baseScore : 100;
+
+  const seededShift = (idx) => ((incidentCount * (idx + 3) + 17) % 31) - 15;
+  const rivals = MOCK_DRIVERS.map((name, idx) => {
+    const score = Math.max(45, Math.min(99, Math.round(safeBase + seededShift(idx))));
+    return {
+      name,
+      score,
+      trips: Math.max(12, Math.round(incidentCount * 0.45 + 18 + idx * 3)),
+      isYou: false,
+    };
+  });
+
+  const you = {
+    name: `${operatorName || "Aditya"} (You)`,
+    score: Math.round(safeBase),
+    trips: Math.max(12, incidentCount),
+    isYou: true,
+  };
+
+  return [you, ...rivals]
+    .sort((a, b) => b.score - a.score)
+    .map((item, index) => ({ ...item, rank: index + 1 }));
 }
 
 // ─── Shared Tooltip ───────────────────────────────────────────────────────────
@@ -283,7 +339,7 @@ function rankLabel(rank) {
   return `#${rank}`;
 }
 
-function SafetyLeaderboard() {
+function SafetyLeaderboard({ data }) {
   return (
     <Card className="glass-card border-white/5 bg-slate-900/80 shadow-2xl overflow-hidden">
       <CardHeader className="border-b border-white/5 bg-slate-800/70 backdrop-blur-md pb-4 pt-6 px-6">
@@ -310,15 +366,15 @@ function SafetyLeaderboard() {
         </div>
 
         {/* Rows */}
-        {LEADERBOARD.map((driver) => {
-          const isYou = driver.name.includes("(You)");
+        {data.map((driver) => {
+          const isYou = driver.isYou;
           return (
             <div
               key={driver.rank}
               className={`grid grid-cols-[56px_1fr_80px_100px] border-b border-white/5 px-6 items-center transition-colors ${
                 isYou
                   ? "bg-orange-500/5 hover:bg-orange-500/10"
-                  : "hover:bg-white/[0.03]"
+                  : "hover:bg-white/3"
               }`}
             >
               {/* Rank */}
@@ -472,82 +528,108 @@ function DriverRiskSegmentation() {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function BehaviorAnalytics() {
-  const { incidents, loading, error } = useIncidents("accidents");
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [dashboardMetrics, setDashboardMetrics] = useState({
+    safetyRating: 100,
+    detectionAccuracy: null,
+    totalIncidents: 0,
+    anomalySeries: [],
+    recentTrend: Array.from({ length: 8 }, (_, idx) => ({ label: `#${idx + 1}`, score: 100 })),
+  });
+  const [hourlyData, setHourlyData] = useState(makeEmptyHourlyData());
+  const [weeklyData, setWeeklyData] = useState(makeEmptyWeeklyData());
+  const [driverScores, setDriverScores] = useState(buildDriverScores(100, 0, user?.fullname || "Aditya"));
 
-  const analytics = useMemo(() => {
-    const empty = {
-      safetyScore: null,
-      avgConfidence: null,
-      timeSeries: [],
-      anomalySeries: [],
-      recentTrend: [],
-      dayOfWeekSeries: DAYS.map((day) => ({ day, incidents: 0 })),
-    };
+  useEffect(() => {
+    setLoading(true);
+    setError("");
 
-    if (!incidents.length) return empty;
+    const incidentsRef = collection(db, "incidents");
+    const unsubscribe = onSnapshot(
+      incidentsRef,
+      (snapshot) => {
+        const docs = snapshot.docs.map((docItem) => {
+          const raw = docItem.data();
+          const timestampDate = toDateValue(raw.timestamp || raw.created_at || raw.createdAt);
+          const severity = normalizeSeverity(raw.severity);
 
-    // Safety score
-    const safetyScores = incidents.map(severityScore);
-    const safetyScore = Math.round(
-      safetyScores.reduce((s, v) => s + v, 0) / safetyScores.length
+          return {
+            id: docItem.id,
+            raw,
+            timestampDate,
+            severity,
+            accidentDetected: severity === "Critical",
+            type: raw.type || raw.classification || raw.label || "Incident",
+          };
+        });
+
+        const hourlyBuckets = makeEmptyHourlyData();
+        const dowBuckets = makeEmptyWeeklyData();
+        const anomalyCounts = {};
+        let confidenceSum = 0;
+        let confidenceCount = 0;
+        let criticalCount = 0;
+        let moderateCount = 0;
+
+        docs.forEach((incident) => {
+          if (incident.timestampDate) {
+            hourlyBuckets[incident.timestampDate.getHours()].incidents += 1;
+            dowBuckets[incident.timestampDate.getDay()].incidents += 1;
+          }
+
+          const confidence = getIncidentConfidence(incident.raw);
+          if (confidence !== null) {
+            confidenceSum += confidence;
+            confidenceCount += 1;
+          }
+
+          if (incident.severity === "Critical") criticalCount += 1;
+          if (incident.severity === "Moderate") moderateCount += 1;
+
+          const anomalyType = classifyAnomaly(incident);
+          anomalyCounts[anomalyType] = (anomalyCounts[anomalyType] || 0) + 1;
+        });
+
+        const detectionAccuracy = confidenceCount > 0 ? confidenceSum / confidenceCount : null;
+        const computedSafety = Math.max(0, 100 - criticalCount * 5 - moderateCount * 2);
+        const anomalySeries = Object.entries(anomalyCounts).map(([type, incidents]) => ({ type, incidents }));
+
+        const recentTrend = docs
+          .filter((item) => item.timestampDate)
+          .sort((a, b) => a.timestampDate - b.timestampDate)
+          .slice(-8)
+          .map((incident, index) => ({
+            label: `#${index + 1}`,
+            score: computeSafetyScoreFromSeverity(incident.severity),
+          }));
+
+        const paddedTrend =
+          recentTrend.length > 0
+            ? recentTrend
+            : Array.from({ length: 8 }, (_, idx) => ({ label: `#${idx + 1}`, score: computedSafety }));
+
+        setDashboardMetrics({
+          safetyRating: computedSafety,
+          detectionAccuracy,
+          totalIncidents: docs.length,
+          anomalySeries,
+          recentTrend: paddedTrend,
+        });
+        setHourlyData(hourlyBuckets);
+        setWeeklyData(dowBuckets);
+        setDriverScores(buildDriverScores(computedSafety, docs.length, user?.fullname || "Aditya"));
+        setLoading(false);
+      },
+      (fetchErr) => {
+        setError(fetchErr?.message || "Failed to load incidents from Firestore.");
+        setLoading(false);
+      },
     );
 
-    // Average YOLO confidence
-    const confidenceSamples = incidents
-      .map((i) => {
-        const raw = i.raw?.yoloConfidence ?? i.raw?.confidence ?? i.raw?.score ?? null;
-        if (typeof raw !== "number") return null;
-        return raw <= 1 ? raw * 100 : raw;
-      })
-      .filter((v) => v !== null);
-    const avgConfidence =
-      confidenceSamples.length > 0
-        ? confidenceSamples.reduce((s, v) => s + v, 0) / confidenceSamples.length
-        : null;
-
-    // Hourly buckets
-    const hourlyBuckets = Array.from({ length: 24 }, (_, hour) => ({ hour, incidents: 0 }));
-    incidents.forEach((incident) => {
-      const hour = incident.timestampDate ? incident.timestampDate.getHours() : null;
-      if (hour !== null) hourlyBuckets[hour].incidents += 1;
-    });
-
-    // Day-of-week buckets
-    const dowBuckets = DAYS.map((day) => ({ day, incidents: 0 }));
-    incidents.forEach((incident) => {
-      const dow = incident.timestampDate ? incident.timestampDate.getDay() : null;
-      if (dow !== null) dowBuckets[dow].incidents += 1;
-    });
-
-    // Anomaly breakdown
-    const anomalyCounts = incidents.reduce((acc, incident) => {
-      const key = classifyAnomaly(incident);
-      acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {});
-    const anomalySeries = Object.entries(anomalyCounts).map(([type, count]) => ({
-      type,
-      incidents: count,
-    }));
-
-    // Recent trend
-    const recentTrend = incidents
-      .slice(0, 8)
-      .reverse()
-      .map((incident, index) => ({
-        label: `#${index + 1}`,
-        score: severityScore(incident),
-      }));
-
-    return {
-      safetyScore,
-      avgConfidence,
-      timeSeries: hourlyBuckets,
-      anomalySeries,
-      recentTrend,
-      dayOfWeekSeries: dowBuckets,
-    };
-  }, [incidents]);
+    return () => unsubscribe();
+  }, [user?.fullname]);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
@@ -561,7 +643,7 @@ export default function BehaviorAnalytics() {
         </p>
       </div>
 
-      {(loading || error || !incidents.length) && (
+      {(loading || error || dashboardMetrics.totalIncidents === 0) && (
         <div className="rounded-2xl border border-white/10 bg-slate-900/70 px-5 py-4 text-sm text-zinc-300">
           {loading
             ? "Loading incident telemetry..."
@@ -578,9 +660,9 @@ export default function BehaviorAnalytics() {
 
       {/* Row 1: Safety Score + Detection Accuracy + Time-of-Day */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <SafetyScoreCard score={analytics.safetyScore} recentTrend={analytics.recentTrend} />
+        <SafetyScoreCard score={dashboardMetrics.safetyRating} recentTrend={dashboardMetrics.recentTrend} />
 
-        <DetectionAccuracyGauge avgConfidence={analytics.avgConfidence} />
+        <DetectionAccuracyGauge avgConfidence={dashboardMetrics.detectionAccuracy} />
 
         <Card className="glass-card border-white/5 bg-slate-900/80 shadow-2xl overflow-hidden">
           <CardHeader className="border-b border-white/5 bg-slate-800/70 backdrop-blur-md pb-4 pt-6 px-6">
@@ -593,7 +675,7 @@ export default function BehaviorAnalytics() {
           </CardHeader>
           <CardContent className="w-full px-3 py-4 h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={analytics.timeSeries}>
+              <BarChart data={hourlyData}>
                 <XAxis
                   dataKey="hour"
                   tickFormatter={safeHourLabel}
@@ -616,7 +698,7 @@ export default function BehaviorAnalytics() {
 
       {/* Row 2: Weekly Risk Heatmap */}
       <div className="grid grid-cols-1 gap-6">
-        <RiskHeatmap dayOfWeekSeries={analytics.dayOfWeekSeries} />
+        <RiskHeatmap dayOfWeekSeries={weeklyData} />
       </div>
 
       {/* Row 3: Anomaly Breakdown */}
@@ -631,13 +713,13 @@ export default function BehaviorAnalytics() {
             </CardDescription>
           </CardHeader>
           <CardContent className="w-full px-4 py-4 h-72">
-            {analytics.anomalySeries.length === 0 ? (
+            {dashboardMetrics.anomalySeries.length === 0 ? (
               <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-white/10 bg-slate-950/50 text-zinc-500 text-sm">
                 No anomaly data available yet.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={analytics.anomalySeries}>
+                <BarChart data={dashboardMetrics.anomalySeries}>
                   <XAxis dataKey="type" stroke="#71717a" tick={{ fontSize: 11 }} />
                   <YAxis stroke="#71717a" allowDecimals={false} tick={{ fontSize: 10 }} />
                   <Tooltip
@@ -653,7 +735,7 @@ export default function BehaviorAnalytics() {
       </div>
 
       {/* Row 4: Safety Leaderboard */}
-      <SafetyLeaderboard />
+      <SafetyLeaderboard data={driverScores} />
     </div>
   );
 }

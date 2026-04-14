@@ -1,7 +1,10 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 import asyncio
-import numpy as np
+try:
+    import numpy as np
+except Exception:
+    np = None
 
 router = APIRouter()
 
@@ -38,6 +41,9 @@ def _label_cluster(centroid_idx: int, centroids: np.ndarray) -> str:
 def fleet_segmentation():
     """K-Means driver risk segmentation (n_clusters=3)."""
     try:
+        if np is None:
+            return {"error": "numpy not installed. Run: pip install numpy"}
+
         from sklearn.cluster import KMeans
         from sklearn.preprocessing import StandardScaler
 

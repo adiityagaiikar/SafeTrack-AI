@@ -209,13 +209,13 @@ export default function SafetyMap() {
           ))}
 
           <Marker
-            center={selectedOrigin}
+            position={selectedOrigin}
           >
             <Popup>Origin</Popup>
           </Marker>
 
           <Marker
-            center={selectedDestination}
+            position={selectedDestination}
           >
             <Popup>Destination</Popup>
           </Marker>

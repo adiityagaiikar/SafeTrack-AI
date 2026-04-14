@@ -12,6 +12,7 @@ const FRAME_H = 360;
 const DIST_SAFE     = 10.0;
 const DIST_MID      = 5.0;
 const DIST_HAZARD   = 3.0;
+const DIST_CRITICAL = 1.0;
 
 // Colour palette — matches Tailwind blue-400 / orange-400 / red-500
 const C_SAFE   = "#60a5fa";
@@ -293,11 +294,15 @@ export default function LiveStream() {
   const [proximityAlert, setProximityAlert] = useState(false);
   const [collisionVec, setCollisionVec] = useState(false);
   const [showOverlay, setShowOverlay]   = useState(true);
+  const [isLockedDown, setIsLockedDown] = useState(false);
+  const [criticalImpactLogged, setCriticalImpactLogged] = useState(false);
+  const [locationData, setLocationData] = useState({ latitude: null, longitude: null });
 
   // Refs — hot-path reads never trigger re-renders
   const ws              = useRef(null);
   const videoRef        = useRef(null);
   const sendCanvasRef   = useRef(null);
+  const snapshotCanvasRef = useRef(null);
   const overlayRef      = useRef(null);
   const intervalRef     = useRef(null);
   const rafRef          = useRef(null);
@@ -310,10 +315,12 @@ export default function LiveStream() {
   const proximityRef    = useRef(false);
   const telemetryPreRef = useRef(null);
   const lastAlertTimeRef = useRef(0);
+  const isLockedDownRef = useRef(false);
 
   useEffect(() => { detectionsRef.current  = detections;  }, [detections]);
   useEffect(() => { showOverlayRef.current = showOverlay; }, [showOverlay]);
   useEffect(() => { proximityRef.current   = proximityAlert; }, [proximityAlert]);
+  useEffect(() => { isLockedDownRef.current = isLockedDown; }, [isLockedDown]);
 
   useEffect(() => {
     if (!telemetryPreRef.current) return;
@@ -347,6 +354,123 @@ export default function LiveStream() {
     }].slice(-40));
   }, []);
 
+  useEffect(() => {
+    if (!navigator?.geolocation) {
+      addLog("Geolocation is not supported in this browser.", "warning");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocationData({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+        addLog("Live GPS lock acquired.", "success");
+      },
+      (error) => {
+        addLog(`GPS lock failed: ${error.message}`, "warning");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      },
+    );
+  }, [addLog]);
+
+  const handleAutonomousCollision = useCallback(async () => {
+    if (isLockedDownRef.current) return;
+
+    setIsLockedDown(true);
+    setCriticalImpactLogged(true);
+    addLog("🚨 CRITICAL IMPACT: AUTONOMOUS DISPATCH ENGAGED.", "danger");
+    triggerVoiceAlert("Critical impact. Autonomous dispatch engaged.");
+
+    const videoEl = videoRef.current;
+    if (videoEl && !videoEl.paused) {
+      videoEl.pause();
+    }
+
+    try {
+      if (!videoEl || videoEl.readyState < 2) {
+        throw new Error("Video frame unavailable for snapshot capture.");
+      }
+
+      // ── Capture 4 burst snapshots at T=0, 300ms, 600ms, 900ms ──────────
+      const captureSnapshot = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width  = videoEl.videoWidth  || FRAME_W;
+        canvas.height = videoEl.videoHeight || FRAME_H;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL("image/jpeg", 0.82);
+      };
+
+      const snapshots = [];
+      snapshots.push(captureSnapshot()); // T=0 — primary impact frame
+
+      // Resume video briefly to capture post-impact frames
+      try { await videoEl.play(); } catch { /* ignore */ }
+
+      await new Promise((r) => setTimeout(r, 300));
+      snapshots.push(captureSnapshot()); // T+300ms
+
+      await new Promise((r) => setTimeout(r, 300));
+      snapshots.push(captureSnapshot()); // T+600ms
+
+      await new Promise((r) => setTimeout(r, 300));
+      snapshots.push(captureSnapshot()); // T+900ms
+
+      // Pause again after burst capture
+      try { videoEl.pause(); } catch { /* ignore */ }
+
+      addLog(`📸 ${snapshots.length} burst snapshots captured.`, "danger");
+
+      const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const response = await fetch(`${apiBase}/api/incidents/autonomous_log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          severity:        "Critical",
+          lat:             locationData.latitude,
+          lng:             locationData.longitude,
+          snapshot_base64: snapshots[0],
+          snapshots:       snapshots.slice(1),
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.detail || "Incident logging failed.");
+      }
+
+      addLog(`🚨 Incident logged — Audit ID: ${payload?.audit_id || "N/A"}`, "danger");
+      if (payload?.sms_dispatched) {
+        addLog("📱 Twilio SMS dispatched to emergency contact.", "danger");
+      } else if (payload?.sms_error) {
+        addLog(`⚠️ SMS failed: ${payload.sms_error}`, "warning");
+      }
+    } catch (err) {
+      addLog(`Autonomous dispatch failed: ${err?.message || "unknown error"}`, "danger");
+    }
+  }, [addLog, locationData.latitude, locationData.longitude, triggerVoiceAlert]);
+
+  const handleManualReset = useCallback(async () => {
+    setIsLockedDown(false);
+    setCriticalImpactLogged(false);
+    addLog("Manual reset complete. Live pipeline resumed.", "system");
+
+    try {
+      const videoEl = videoRef.current;
+      if (videoEl && videoEl.paused) {
+        await videoEl.play();
+      }
+    } catch {
+      addLog("Video resume requires user interaction.", "warning");
+    }
+  }, [addLog]);
+
   const buildWsUrl = () => {
     const base   = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
     const parsed = new URL(base);
@@ -371,6 +495,7 @@ export default function LiveStream() {
 
   // ── Encode + send frame ──────────────────────────────────────────────────
   const sendFrame = useCallback(() => {
+    if (isLockedDownRef.current) return;
     const socket  = ws.current;
     const videoEl = videoRef.current;
     const canvas  = sendCanvasRef.current;
@@ -476,14 +601,22 @@ export default function LiveStream() {
               .map((d) => Number(d?.distance || 0))
               .filter((d) => Number.isFinite(d) && d > 0)
               .reduce((min, d) => (d < min ? d : min), Infinity);
-            setClosestDistance(nearest === Infinity ? null : Number(nearest.toFixed(2)));
+            const nearestDistance = nearest === Infinity ? null : Number(nearest.toFixed(2));
+            setClosestDistance(nearestDistance);
 
             const hazard = Boolean(data?.hazard_alert);
             const proximity = Boolean(data?.proximity_alert);
             const cvec   = Boolean(data?.collision_vector);
+            const collisionAlert = Boolean(data?.collision_alert);
+            const smoothedDistance = Number(data?.smoothed_distance);
             setHazardAlert(hazard);
             setProximityAlert(proximity);
             setCollisionVec(cvec);
+
+            // Use backend's confirmed collision_alert (5-frame glitch-filtered)
+            if (collisionAlert && !isLockedDownRef.current) {
+              handleAutonomousCollision();
+            }
 
             if (hazard && !hazardLoggedRef.current) {
               addLog("🚨 HAZARD — approaching vehicle < 3m!", "danger");
@@ -528,7 +661,7 @@ export default function LiveStream() {
         window.speechSynthesis.cancel();
       }
     };
-  }, [addLog, sendFrame]);
+  }, [addLog, sendFrame, handleAutonomousCollision]);
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -558,6 +691,15 @@ export default function LiveStream() {
             {showOverlay ? "HUD ON" : "HUD OFF"}
           </button>
 
+          {isLockedDown && (
+            <button
+              onClick={handleManualReset}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-300 bg-red-700 text-white text-xs font-black uppercase tracking-widest transition-all duration-200 hover:bg-red-600"
+            >
+              Manual Reset
+            </button>
+          )}
+
           <div className="hidden md:flex items-center gap-4 bg-black/40 backdrop-blur-md px-5 py-3 border border-white/10 rounded-2xl shadow-xl">
             <div className="flex flex-col items-end">
               <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Tracker</span>
@@ -586,7 +728,7 @@ export default function LiveStream() {
         {/* ── Video + HUD ──────────────────────────────────────────────────── */}
         <div className="lg:col-span-3 flex flex-col h-full">
           <Card className="flex-1 overflow-hidden glass-card border-none shadow-2xl flex flex-col relative group">
-            <div className="bg-[#050505] flex-1 relative flex items-center justify-center overflow-hidden m-1.5 rounded-[0.8rem] border border-white/5">
+            <div className="bg-[#050505] relative flex items-center justify-center overflow-hidden m-1.5 rounded-[0.8rem] border border-white/5 min-h-130 h-[72vh] max-h-[72vh]">
 
               {/* Subtle grid */}
               <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-size-[40px_40px] pointer-events-none mix-blend-overlay" />
@@ -636,7 +778,20 @@ export default function LiveStream() {
               )}
 
               {/* Proximity warning state */}
-              {proximityAlert && showOverlay && (
+              {criticalImpactLogged && showOverlay && (
+                <>
+                  <div className="absolute inset-0 z-40 pointer-events-none bg-black/90" />
+                  <div className="absolute inset-0 z-50 pointer-events-none flex items-center justify-center">
+                    <div className="rounded-2xl border-2 border-red-300 bg-red-800 px-10 py-6 shadow-[0_0_80px_rgba(239,68,68,0.95)] animate-pulse">
+                      <p className="text-center text-red-50 font-black text-2xl tracking-widest uppercase">
+                        🚨 CRITICAL IMPACT: AUTONOMOUS DISPATCH ENGAGED.
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {proximityAlert && showOverlay && !criticalImpactLogged && (
                 <>
                   <div className="absolute inset-0 z-20 pointer-events-none bg-red-500/20 animate-pulse" />
                   <div className="absolute top-6 left-1/2 -translate-x-1/2 z-9999 pointer-events-none">
@@ -688,6 +843,7 @@ export default function LiveStream() {
 
               {/* Hidden encode canvas */}
               <canvas ref={sendCanvasRef} className="hidden" />
+              <canvas ref={snapshotCanvasRef} className="hidden" />
 
               {/* HUD overlay canvas — absolute, pixel-synced to video */}
               <canvas
@@ -696,14 +852,25 @@ export default function LiveStream() {
                 style={{ imageRendering: "pixelated" }}
               />
 
-              {/* Offline overlay */}
-              {wsStatus !== "connected" && (
+              {/* Connecting overlay only (non-blocking for disconnected/error states) */}
+              {wsStatus === "connecting" && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm z-20">
                   <Scan className="w-16 h-16 text-zinc-500 mb-4 animate-[spin_12s_linear_infinite]" />
                   <p className="text-sm font-bold tracking-widest uppercase text-zinc-300">
-                    {wsStatus === "connecting" ? "Initialising Spatial Engine..." : "Stream Offline"}
+                    Initialising Spatial Engine...
                   </p>
                   {streamError && <p className="mt-2 text-xs text-red-300">{streamError}</p>}
+                </div>
+              )}
+
+              {/* Compact WS status message (does not block video visibility) */}
+              {wsStatus !== "connected" && wsStatus !== "connecting" && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+                  <div className="rounded-xl border border-red-500/35 bg-red-950/80 px-4 py-2 shadow-[0_0_20px_rgba(127,29,29,0.55)]">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-red-200">
+                      Spatial engine offline. Showing raw camera feed.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

@@ -1,6 +1,9 @@
 from typing import List
 
-from twilio.rest import Client
+try:
+    from twilio.rest import Client
+except Exception:
+    Client = None
 
 from app.core.config import settings
 
@@ -8,6 +11,9 @@ from app.core.config import settings
 def dispatch_emergency_sos(target_phone_numbers: List[str], message: str) -> dict:
     if not target_phone_numbers:
         return {"sent": 0, "skipped": True, "reason": "No emergency contacts provided"}
+
+    if Client is None:
+        return {"sent": 0, "skipped": True, "reason": "Twilio package is not installed"}
 
     from_number = settings.TWILIO_FROM_NUMBER or settings.TWILIO_PHONE_NUMBER or settings.TARGET_PHONE_NUMBER
 

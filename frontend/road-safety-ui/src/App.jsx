@@ -15,6 +15,7 @@ import Overview from "./pages/dashboard/Overview";
 import BehaviorAnalytics from "./pages/dashboard/BehaviorAnalytics";
 import LiveStream from "./pages/dashboard/LiveStream";
 import VideoUpload from "./pages/dashboard/VideoUpload";
+import SafetySimulator from "./pages/dashboard/SafetySimulator";
 import IncidentLog from "./pages/incidents/IncidentLog";
 import PredictiveRouting from "./pages/dashboard/PredictiveRouting";
 import Settings from "./pages/settings/Settings";
@@ -111,14 +112,15 @@ function AppRoutes() {
           <Route element={<ProtectedRoute allowedRoles={["user", "admin"]} />}>
             <Route path="/" element={<DashboardLayout />}>
               <Route index element={<RoleHomeRedirect />} />
-              <Route path="overview" element={<Overview />} />
-              <Route path="stream" element={<LiveStream />} />
-              <Route path="upload" element={<VideoUpload />} />
-              <Route path="incidents" element={<AdminRoute><IncidentLog /></AdminRoute>} />
-              <Route path="analytics" element={<BehaviorAnalytics />} />
+              <Route path="overview"          element={<Overview />} />
+              <Route path="stream"           element={<LiveStream />} />
+              <Route path="upload"           element={<VideoUpload />} />
+              <Route path="incidents"        element={<AdminRoute><IncidentLog /></AdminRoute>} />
+              <Route path="analytics"        element={<BehaviorAnalytics />} />
               <Route path="predictive-routing" element={<PredictiveRouting />} />
-              <Route path="billing" element={<Billing />} />
-              <Route path="settings" element={<Settings />} />
+              <Route path="simulator"        element={<SafetySimulator />} />
+              <Route path="billing"          element={<Billing />} />
+              <Route path="settings"         element={<Settings />} />
             </Route>
           </Route>
 
