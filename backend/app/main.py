@@ -104,14 +104,16 @@ class IncidentLogPayload(BaseModel):
     snapshot_base64: str
     closest_distance: float | None = None
     collision_alert: bool | None = None
+    userId: str | None = None          # Firebase UID for tenant isolation
 
 
 class AutonomousIncidentPayload(BaseModel):
     severity: str
     lat: float | None = None
     lng: float | None = None
-    snapshot_base64: str                          # primary snapshot (T=0)
-    snapshots: list[str] = []                     # additional burst snapshots
+    snapshot_base64: str
+    snapshots: list[str] = []
+    userId: str | None = None          # Firebase UID for tenant isolation
     user_email: str | None = None
 
 
@@ -164,6 +166,7 @@ async def autonomous_log_incident(payload: AutonomousIncidentPayload):
         "status":          "pending_review",
         "accidentDetected": True,
         "source":          "autonomous_dispatch",
+        "userId":          payload.userId or "anonymous",
         "llm_summary": (
             f"Autonomous collision lockdown triggered at T+0. "
             f"Object maintained smoothed distance < {CRITICAL_DISTANCE_THRESHOLD}m "
@@ -257,6 +260,7 @@ async def log_incident(payload: IncidentLogPayload):
         "closest_distance": payload.closest_distance,
         "collision_alert":  bool(payload.collision_alert),
         "source":           "live_stream",
+        "userId":           payload.userId or "anonymous",
         "created_at":       firestore.SERVER_TIMESTAMP,
     }
 

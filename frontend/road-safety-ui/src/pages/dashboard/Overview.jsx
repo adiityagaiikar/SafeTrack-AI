@@ -321,7 +321,7 @@ function CommandOverrides() {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Overview() {
-  const { incidents, loading: incLoading, error, metrics } = useIncidents("accidents");
+  const { incidents, loading: incLoading, error, metrics } = useIncidents("accidents", { scoped: true });
   const { nodes, loading: nodeLoading } = useEdgeNodes();
   const [exportingId, setExportingId] = useState(null);
 

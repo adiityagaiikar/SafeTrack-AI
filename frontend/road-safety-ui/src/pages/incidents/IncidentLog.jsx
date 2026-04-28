@@ -76,7 +76,7 @@ export default function IncidentLog() {
   const [searchTerm, setSearchTerm]       = useState("");
   const [compilingId, setCompilingId]     = useState("");
   const [narrativeModal, setNarrativeModal] = useState(null); // { loading, narrative, error }
-  const { incidents, loading, error } = useIncidents("accidents");
+  const { incidents, loading, error } = useIncidents("accidents", { scoped: true });
 
   const filteredLogs = incidents.filter(
     (log) =>

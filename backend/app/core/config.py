@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     )
     EMAIL_USER: str = os.getenv("EMAIL_USER", "")
     EMAIL_PASS: str = os.getenv("EMAIL_PASS", "")
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "")
 
     class Config:
         env_file = ".env"

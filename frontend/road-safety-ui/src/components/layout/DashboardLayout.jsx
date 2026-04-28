@@ -15,6 +15,7 @@ import {
   ChevronDown
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth.jsx";
+import VoiceCopilot from "@/components/VoiceCopilot";
 
 export default function DashboardLayout() {
   const location = useLocation();
@@ -177,6 +178,9 @@ export default function DashboardLayout() {
         </div>
 
       </main>
+
+      {/* Voice Co-Pilot — floats globally on all operator pages */}
+      <VoiceCopilot />
     </div>
   );
 }

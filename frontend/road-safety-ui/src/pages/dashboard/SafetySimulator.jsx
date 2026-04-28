@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Award, CheckCircle2, XCircle, RotateCcw, ChevronRight, Shield, AlertTriangle } from "lucide-react";
+import { Award, CheckCircle2, XCircle, RotateCcw, ChevronRight, Shield, AlertTriangle, BookOpen, ExternalLink } from "lucide-react";
 
-// ─── Question Bank — Mumbai RTO Parameters ────────────────────────────────────
+// ─── Study References ─────────────────────────────────────────────────────────
+const STUDY_REFS = [
+  { title: "Motor Vehicles Act 1988 — Full Text", url: "https://morth.nic.in/motor-vehicle-act", source: "MoRTH India" },
+  { title: "Mumbai RTO Official Driving Test Guide", url: "https://transport.maharashtra.gov.in", source: "Maharashtra Transport" },
+  { title: "iRASTE Road Safety — Mumbai Blackspots", url: "https://iraste.in", source: "iRASTE Project" },
+  { title: "MSRDC Expressway Rules & Speed Limits", url: "https://msrdc.org", source: "MSRDC" },
+  { title: "National Road Safety Policy — India", url: "https://morth.nic.in/national-road-safety-policy", source: "MoRTH India" },
+  { title: "YouTube: Mumbai RTO Driving Test 2024", url: "https://www.youtube.com/results?search_query=mumbai+rto+driving+test+2024", source: "YouTube" },
+];
+
+// ─── Question Bank — 10 Mumbai RTO Questions ─────────────────────────────────
 const rtoQuestions = [
   {
     id: 1,
@@ -9,7 +19,8 @@ const rtoQuestions = [
     question: "What is the legal Blood Alcohol Concentration (BAC) limit for driving in India?",
     options: ["0.00%", "0.03% (30mg/100ml)", "0.05%", "0.08%"],
     answer: "0.03% (30mg/100ml)",
-    explanation: "Under the Motor Vehicles Act, the legal BAC limit is 30mg per 100ml of blood (0.03%). Exceeding this is a cognizable offence.",
+    explanation: "Under the Motor Vehicles Act, the legal BAC limit is 30mg per 100ml of blood (0.03%). Exceeding this is a cognizable offence punishable with imprisonment up to 6 months.",
+    ref: "Motor Vehicles Act 1988, Section 185",
   },
   {
     id: 2,
@@ -22,15 +33,17 @@ const rtoQuestions = [
       "The time taken for police to arrive",
     ],
     answer: "First hour after trauma where medical care has highest survival rate",
-    explanation: "The Golden Hour refers to the critical 60-minute window post-trauma where immediate medical intervention dramatically increases survival probability.",
+    explanation: "The Golden Hour is the critical 60-minute window post-trauma where immediate medical intervention dramatically increases survival probability.",
+    ref: "National Road Safety Policy, MoRTH India",
   },
   {
     id: 3,
     category: "SPEED REGULATIONS",
-    question: "You are driving on the Mumbai-Pune Expressway. What is the maximum speed limit for a light motor vehicle (car)?",
+    question: "What is the maximum speed limit for a light motor vehicle on the Mumbai-Pune Expressway?",
     options: ["80 km/h", "100 km/h", "120 km/h", "No limit"],
     answer: "100 km/h",
-    explanation: "The Mumbai-Pune Expressway has a maximum speed limit of 100 km/h for light motor vehicles (LMV) as per MSRDC regulations.",
+    explanation: "The Mumbai-Pune Expressway has a maximum speed limit of 100 km/h for LMVs as per MSRDC regulations. Heavy vehicles are limited to 80 km/h.",
+    ref: "MSRDC Expressway Rules, msrdc.org",
   },
   {
     id: 4,
@@ -44,6 +57,7 @@ const rtoQuestions = [
     ],
     answer: "Stop completely and proceed only when safe",
     explanation: "A flashing red signal is treated as a STOP sign. You must come to a complete halt and proceed only when the intersection is clear.",
+    ref: "Central Motor Vehicles Rules 1989, Rule 15",
   },
   {
     id: 5,
@@ -57,6 +71,67 @@ const rtoQuestions = [
     ],
     answer: "DL, RC, PUC, and Valid Insurance",
     explanation: "Section 130 of the MV Act mandates carrying: Driving Licence (DL), Registration Certificate (RC), Pollution Under Control (PUC) certificate, and valid Insurance.",
+    ref: "Motor Vehicles Act 1988, Section 130",
+  },
+  {
+    id: 6,
+    category: "ROAD SIGNS",
+    question: "A circular sign with a red border and white background in India indicates:",
+    options: [
+      "A mandatory instruction you must follow",
+      "A warning about road conditions ahead",
+      "Information about a nearby facility",
+      "A suggested speed limit",
+    ],
+    answer: "A mandatory instruction you must follow",
+    explanation: "Circular signs with red borders are PROHIBITORY or MANDATORY signs in India. They must be obeyed — examples include 'No Entry', 'Speed Limit', and 'No Overtaking'.",
+    ref: "IRC:67 — Code of Practice for Road Signs",
+  },
+  {
+    id: 7,
+    category: "MUMBAI SPECIFIC",
+    question: "On Mumbai's Eastern Freeway, what is the speed limit for private cars?",
+    options: ["60 km/h", "80 km/h", "100 km/h", "No speed limit posted"],
+    answer: "80 km/h",
+    explanation: "The Mumbai Eastern Freeway (Orange Gate to Ghatkopar) has a speed limit of 80 km/h for private cars. Heavy vehicles are restricted to 60 km/h.",
+    ref: "Mumbai Traffic Police — Eastern Freeway Regulations",
+  },
+  {
+    id: 8,
+    category: "PENALTIES",
+    question: "Under the amended Motor Vehicles Act 2019, what is the fine for driving without a valid driving licence in India?",
+    options: ["₹500", "₹1,000", "₹5,000", "₹10,000"],
+    answer: "₹5,000",
+    explanation: "The MV Amendment Act 2019 increased the penalty for driving without a valid licence to ₹5,000 (up from ₹500). Repeat offences attract higher fines and imprisonment.",
+    ref: "Motor Vehicles (Amendment) Act 2019, Section 3",
+  },
+  {
+    id: 9,
+    category: "SAFETY RULES",
+    question: "According to Indian law, who must wear a helmet while riding a two-wheeler?",
+    options: [
+      "Only the rider",
+      "Only the pillion passenger",
+      "Both rider and pillion passenger",
+      "Only on highways",
+    ],
+    answer: "Both rider and pillion passenger",
+    explanation: "Section 129 of the MV Act mandates helmet use for BOTH the rider and pillion passenger on all roads. Maharashtra enforces this strictly with fines up to ₹1,500.",
+    ref: "Motor Vehicles Act 1988, Section 129",
+  },
+  {
+    id: 10,
+    category: "FIRST AID",
+    question: "If you witness a road accident in India, what is your legal obligation under the Good Samaritan Law?",
+    options: [
+      "You have no legal obligation",
+      "You must call police only",
+      "You can help the victim without fear of legal harassment",
+      "You must wait for an ambulance before touching the victim",
+    ],
+    answer: "You can help the victim without fear of legal harassment",
+    explanation: "India's Good Samaritan Law (2016) protects bystanders who help accident victims from civil and criminal liability. You are encouraged to provide first aid and transport victims to hospital.",
+    ref: "Good Samaritan Guidelines, MoRTH India 2016",
   },
 ];
 
@@ -269,6 +344,35 @@ export default function SafetySimulator() {
             </div>
           </div>
         </div>
+
+        {/* Study References */}
+        <div className="rounded-3xl border border-white/10 bg-slate-900/60 backdrop-blur-xl shadow-2xl overflow-hidden">
+          <div className="px-8 py-5 border-b border-white/5 flex items-center gap-3">
+            <div className="p-1.5 bg-blue-500/10 rounded-lg border border-blue-500/20">
+              <BookOpen className="w-4 h-4 text-blue-400" />
+            </div>
+            <h3 className="text-sm font-black text-white tracking-widest uppercase">Study Resources — Mumbai RTO</h3>
+          </div>
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-3">
+            {STUDY_REFS.map((ref) => (
+              <a
+                key={ref.url}
+                href={ref.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/5 bg-black/30 hover:bg-white/5 hover:border-blue-500/30 transition-all group"
+              >
+                <div className="p-1.5 bg-blue-500/10 rounded-lg border border-blue-500/20 shrink-0">
+                  <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-zinc-200 group-hover:text-white transition-colors truncate">{ref.title}</p>
+                  <p className="text-[9px] font-mono text-zinc-600 mt-0.5">{ref.source}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -348,7 +452,14 @@ export default function SafetySimulator() {
                   ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-green-400" />
                   : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-orange-400" />
                 }
-                <span>{question.explanation}</span>
+                <div>
+                  <span>{question.explanation}</span>
+                  {question.ref && (
+                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mt-2">
+                      📖 Ref: {question.ref}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           )}

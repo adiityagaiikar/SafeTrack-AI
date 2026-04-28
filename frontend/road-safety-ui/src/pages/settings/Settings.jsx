@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { Save, RefreshCw, Cpu, Server, RadioReceiver, Loader2 } from "lucide-react";
+import { Save, RefreshCw, Cpu, Server, RadioReceiver, Loader2, Mail, Phone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import EmergencyContacts from "@/components/settings/EmergencyContacts";
 import { useAuth } from "@/context/AuthContext";
@@ -20,7 +20,9 @@ export default function Settings() {
     policeSocket: "wss://emergency.police.gov/stream",
     smsAlerts: true,
     dailyDigest: false,
-    rawTelemetry: true
+    rawTelemetry: true,
+    notificationEmail: "",
+    notificationPhone: "",
   });
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function Settings() {
       try {
         const snap = await getDoc(doc(db, "users", user.uid, "config", "system"));
         if (snap.exists()) {
-          setConfig(snap.data());
+          setConfig((prev) => ({ ...prev, ...snap.data() }));
         }
       } catch (e) {
         console.error("Failed to load config", e);
@@ -59,6 +61,52 @@ export default function Settings() {
         <h2 className="text-4xl font-extrabold tracking-tight text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.05)]">System Configuration</h2>
         <p className="text-zinc-500 font-medium text-lg">Orchestrate automated dispatch rules and telemetry notification parameters.</p>
       </div>
+
+      {/* ── Nodemailer / Notification Contacts ── */}
+      <Card className="glass-card border-none shadow-2xl relative overflow-hidden group">
+        <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-white/20 to-transparent opacity-50" />
+        <CardHeader className="bg-black/60 border-b border-white/5 pb-6 pt-8 px-10 backdrop-blur-xl z-10 relative">
+          <div className="flex items-center gap-4 mb-2">
+            <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl shadow-inner">
+              <Mail className="w-6 h-6 text-blue-400" />
+            </div>
+            <CardTitle className="text-2xl font-black tracking-tight text-white">Notification Contacts</CardTitle>
+          </div>
+          <CardDescription className="text-zinc-500 font-medium text-base ml-14">
+            Email and phone number used by Nodemailer and Twilio for incident alerts.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-10 space-y-8 bg-[#050505]/80 backdrop-blur-md relative z-10">
+          <div className="space-y-3">
+            <Label htmlFor="notif-email" className="text-xs font-black text-zinc-500 uppercase tracking-widest pl-1 flex items-center gap-2">
+              <Mail className="w-3.5 h-3.5" /> Alert Email Address
+            </Label>
+            <Input
+              id="notif-email"
+              type="email"
+              placeholder="you@example.com"
+              value={config.notificationEmail}
+              onChange={(e) => setConfig({ ...config, notificationEmail: e.target.value })}
+              className="bg-black/50 border-white/10 shadow-inner h-14 px-5 rounded-xl font-mono text-zinc-300 focus-visible:ring-1 focus-visible:ring-white/20 transition-all hover:bg-white/5 focus:bg-white/5 text-sm"
+            />
+            <p className="text-[10px] font-bold tracking-widest text-zinc-600 uppercase pl-2">Used by Nodemailer for collision reports and daily digest</p>
+          </div>
+          <div className="space-y-3">
+            <Label htmlFor="notif-phone" className="text-xs font-black text-zinc-500 uppercase tracking-widest pl-1 flex items-center gap-2">
+              <Phone className="w-3.5 h-3.5" /> Alert Phone Number
+            </Label>
+            <Input
+              id="notif-phone"
+              type="tel"
+              placeholder="+91XXXXXXXXXX"
+              value={config.notificationPhone}
+              onChange={(e) => setConfig({ ...config, notificationPhone: e.target.value })}
+              className="bg-black/50 border-white/10 shadow-inner h-14 px-5 rounded-xl font-mono text-zinc-300 focus-visible:ring-1 focus-visible:ring-white/20 transition-all hover:bg-white/5 focus:bg-white/5 text-sm"
+            />
+            <p className="text-[10px] font-bold tracking-widest text-zinc-600 uppercase pl-2">Used by Twilio SOS for SMS dispatch on critical events</p>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="glass-card border-none shadow-2xl relative overflow-hidden group">
         <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity duration-1000 pointer-events-none">
@@ -118,31 +166,20 @@ export default function Settings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="p-10 space-y-8 bg-[#050505]/80 backdrop-blur-md relative z-10">
-
           <div className="flex items-center justify-between border-b border-white/5 pb-8">
             <div className="space-y-1">
               <Label className="text-lg text-white font-extrabold tracking-tight">Instant SMS Push</Label>
               <p className="text-sm font-medium text-zinc-500">Twilio integration for real-time mobile push notifications.</p>
             </div>
-            <Switch 
-              checked={config.smsAlerts} 
-              onCheckedChange={(checked) => setConfig({ ...config, smsAlerts: checked })}
-              className="data-[state=checked]:bg-white data-[state=checked]:shadow-[0_0_15px_rgba(255,255,255,0.5)] scale-125 border-white/10" 
-            />
+            <Switch checked={config.smsAlerts} onCheckedChange={(checked) => setConfig({ ...config, smsAlerts: checked })} className="data-[state=checked]:bg-white data-[state=checked]:shadow-[0_0_15px_rgba(255,255,255,0.5)] scale-125 border-white/10" />
           </div>
-
           <div className="flex items-center justify-between border-b border-white/5 pb-8">
             <div className="space-y-1">
               <Label className="text-lg text-white font-extrabold tracking-tight">Daily Summary Digest</Label>
               <p className="text-sm font-medium text-zinc-500">Aggregated network health PDF delivered at 08:00 UTC.</p>
             </div>
-            <Switch 
-              checked={config.dailyDigest} 
-              onCheckedChange={(checked) => setConfig({ ...config, dailyDigest: checked })}
-              className="data-[state=checked]:bg-white data-[state=checked]:shadow-[0_0_15px_rgba(255,255,255,0.5)] scale-125 border-white/10" 
-            />
+            <Switch checked={config.dailyDigest} onCheckedChange={(checked) => setConfig({ ...config, dailyDigest: checked })} className="data-[state=checked]:bg-white data-[state=checked]:shadow-[0_0_15px_rgba(255,255,255,0.5)] scale-125 border-white/10" />
           </div>
-
           <div className="flex items-center justify-between">
             <div className="space-y-1 flex flex-col justify-center">
               <Label className="text-lg text-white font-extrabold flex items-center gap-3 tracking-tight">
@@ -151,13 +188,8 @@ export default function Settings() {
               </Label>
               <p className="text-sm font-medium text-zinc-500">Subscribe to the unparsed inference event queue.</p>
             </div>
-            <Switch 
-              checked={config.rawTelemetry} 
-              onCheckedChange={(checked) => setConfig({ ...config, rawTelemetry: checked })}
-              className="data-[state=checked]:bg-white data-[state=checked]:shadow-[0_0_15px_rgba(255,255,255,0.5)] scale-125 border-white/10" 
-            />
+            <Switch checked={config.rawTelemetry} onCheckedChange={(checked) => setConfig({ ...config, rawTelemetry: checked })} className="data-[state=checked]:bg-white data-[state=checked]:shadow-[0_0_15px_rgba(255,255,255,0.5)] scale-125 border-white/10" />
           </div>
-
         </CardContent>
       </Card>
 
@@ -173,7 +205,7 @@ export default function Settings() {
           <Button variant="outline" className="text-zinc-500 bg-black/40 border-white/10 hover:bg-white/5 hover:text-white rounded-full px-8 font-bold shadow-inner transition-all h-14">
             Revert Defaults
           </Button>
-          <Button 
+          <Button
             onClick={commitConfiguration}
             disabled={committing}
             className="bg-white hover:bg-zinc-200 text-zinc-950 shadow-[0_0_20px_rgba(255,255,255,0.2)] rounded-full px-10 h-14 font-extrabold text-base transition-all transform hover:scale-[1.02] active:scale-95"
