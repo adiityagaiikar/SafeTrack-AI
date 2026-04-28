@@ -56,3 +56,5 @@ backend/videos/
 backend/firebase-key.json
 backend/.env
 .env
+
+backend/node_modules/

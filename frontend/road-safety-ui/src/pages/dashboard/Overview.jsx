@@ -521,8 +521,8 @@ export default function Overview() {
             <Table className="table-fixed w-full">
               <TableHeader>
                 <TableRow className="border-white/5 hover:bg-transparent">
-                  {["Audit ID", "Timestamp", "Geo-Location", "Classification", "Risk Severity", "Actions"].map((h, i) => (
-                    <TableHead key={h} className={`font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8 ${i >= 4 ? "text-right" : ""}`}>
+                  {["Timestamp", "Geo-Location", "Classification", "Risk Severity", "Actions"].map((h, i) => (
+                    <TableHead key={h} className={`font-extrabold text-zinc-600 uppercase tracking-widest text-[10px] py-4 px-8 ${i >= 3 ? "text-right" : ""}`}>
                       {h}
                     </TableHead>
                   ))}
@@ -537,16 +537,11 @@ export default function Overview() {
                       key={incident.id}
                       className="border-white/5 hover:bg-slate-800/60 transition-colors cursor-pointer group"
                     >
-                      <TableCell className="px-8 py-4">
-                        <span className="font-mono text-sm font-black text-white">
-                          {incident.raw?.audit_id || incident.id.slice(0, 8).toUpperCase()}
-                        </span>
-                      </TableCell>
                       <TableCell className="font-semibold text-zinc-400 px-8 py-4 whitespace-nowrap font-mono text-xs">
                         {incident.date} {incident.time}
                       </TableCell>
                       <TableCell className="font-mono text-xs text-zinc-300 px-8 py-4">
-                        {formatLocation(incident.raw)}
+                        {incident.location}
                       </TableCell>
                       <TableCell className="text-zinc-300 px-8 py-4 text-sm">
                         {incident.raw?.classification || incident.type}
@@ -569,7 +564,7 @@ export default function Overview() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-zinc-500 font-mono text-sm">
+                    <TableCell colSpan={5} className="h-24 text-center text-zinc-500 font-mono text-sm">
                       No incidents recorded yet.
                     </TableCell>
                   </TableRow>

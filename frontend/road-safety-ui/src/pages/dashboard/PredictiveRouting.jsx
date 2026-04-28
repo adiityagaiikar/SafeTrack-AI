@@ -276,7 +276,7 @@ export default function PredictiveRouting() {
           <p className="text-zinc-500 text-sm font-medium">Routes are rebuilt with OSRM and detours are forced around high-risk blackspots.</p>
         </div>
 
-        <div className="h-[calc(100vh-16rem)] min-h-140 relative">
+        <div className="h-[calc(100vh-16rem)] min-h-[560px] relative overflow-hidden rounded-b-2xl">
           <MapContainer center={[selectedOrigin.lat, selectedOrigin.lng]} zoom={6} className="h-full w-full z-0">
             <MapClickHandler mode={selectionMode} onPick={handleMapPick} />
             <TileLayer
@@ -319,7 +319,7 @@ export default function PredictiveRouting() {
             )}
           </MapContainer>
 
-          <div className="absolute top-5 left-5 w-96 rounded-2xl border border-white/10 bg-slate-800/65 backdrop-blur-xl shadow-2xl p-5 z-1000">
+          <div className="absolute top-5 left-5 w-80 rounded-2xl border border-white/10 bg-slate-800/65 backdrop-blur-xl shadow-2xl p-5 z-[1000]">
             <p className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-4">Route Planner Overlay</p>
 
             <div className="space-y-4">

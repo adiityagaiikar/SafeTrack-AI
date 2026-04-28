@@ -39,7 +39,7 @@ async def dispatch_sms(payload: DispatchSMSRequest):
 
     try:
         message = client.messages.create(
-            body=f"CRITICAL ALERT: Incident {payload.incident_id} detected. Severity: {payload.severity}. Dispatch immediate response.",
+            body=f"🚨 CRASH ALERT\nIncident: {payload.incident_id}\nSeverity: {payload.severity}",
             from_=twilio_phone_number,
             to=payload.target_phone_number,
         )

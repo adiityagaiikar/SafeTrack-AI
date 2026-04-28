@@ -37,9 +37,9 @@ async def dispatch_sos(request: SOSDispatchRequest, user: dict = Depends(get_cur
     sos_ref.set(payload)
 
     message = (
-        f"SOS ALERT: Potential severe crash detected for user {user.get('email', user['uid'])}. "
-        f"Severity: {request.severity}. "
-        f"Location: {request.coordinates if request.coordinates else 'Unavailable'}."
+        f"🚨 SOS ALERT\n"
+        f"Severity: {request.severity}\n"
+        f"User: {user.get('email', user['uid'])}"
     )
 
     twilio_result = dispatch_emergency_sos(request.target_phone_numbers, message)

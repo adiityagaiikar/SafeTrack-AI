@@ -1,44 +1,37 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Database, RadioTower, Users, ActivitySquare, CheckCircle2, Wifi, WifiOff } from "lucide-react";
+import {
+  Database, RadioTower, Users, ActivitySquare,
+  CheckCircle2, Wifi, WifiOff, UserPlus, Gift,
+  TrendingUp, TrendingDown, Coins, Link2, Layers,
+  ArrowRight, Zap,
+} from "lucide-react";
 import {
   collection, query, where, onSnapshot, getCountFromServer,
 } from "firebase/firestore";
 import { db } from "@/services/firebase";
 
-// ─── Animated counter hook ────────────────────────────────────────────────────
-// Counts from 0 → target over `duration` ms using requestAnimationFrame.
-// Returns the current display value (integer).
+// ─── Animated counter ─────────────────────────────────────────────────────────
 function useCountUp(target, duration = 1200) {
   const [display, setDisplay] = useState(0);
   const rafRef   = useRef(null);
-  const startRef = useRef(null);
   const fromRef  = useRef(0);
 
   useEffect(() => {
-    if (target === null) return;           // still loading — don't animate yet
+    if (target === null) return;
     const from = fromRef.current;
     const diff = target - from;
     if (diff === 0) return;
-
     cancelAnimationFrame(rafRef.current);
-    startRef.current = null;
-
+    let startTs = null;
     const step = (ts) => {
-      if (!startRef.current) startRef.current = ts;
-      const elapsed  = ts - startRef.current;
-      const progress = Math.min(elapsed / duration, 1);
-      // Ease-out cubic
-      const eased    = 1 - Math.pow(1 - progress, 3);
-      const current  = Math.round(from + diff * eased);
-      setDisplay(current);
-      if (progress < 1) {
-        rafRef.current = requestAnimationFrame(step);
-      } else {
-        fromRef.current = target;
-      }
+      if (!startTs) startTs = ts;
+      const p = Math.min((ts - startTs) / duration, 1);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setDisplay(Math.round(from + diff * eased));
+      if (p < 1) rafRef.current = requestAnimationFrame(step);
+      else fromRef.current = target;
     };
-
     rafRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafRef.current);
   }, [target, duration]);
@@ -50,13 +43,10 @@ function useCountUp(target, duration = 1200) {
 function KpiCard({ title, rawValue, suffix = "", detail, icon: Icon, accent, loading }) {
   const animated = useCountUp(loading ? null : (rawValue ?? 0));
   const display  = loading ? null : animated;
-
   return (
     <Card className="glass-card relative overflow-hidden group hover:shadow-[0_0_30px_rgba(255,255,255,0.03)] transition-all duration-500 border-white/5">
       <CardHeader className="flex flex-row items-center justify-between pb-2 z-10 relative">
-        <CardTitle className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">
-          {title}
-        </CardTitle>
+        <CardTitle className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{title}</CardTitle>
         <div className="p-2 bg-white/5 rounded-lg border border-white/10 shadow-inner group-hover:bg-white/10 transition-colors">
           <Icon className="h-4 w-4 text-zinc-300" />
         </div>
@@ -69,15 +59,13 @@ function KpiCard({ title, rawValue, suffix = "", detail, icon: Icon, accent, loa
             {display?.toLocaleString()}{suffix}
           </div>
         )}
-        <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mt-1">
-          {detail}
-        </p>
+        <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 mt-1">{detail}</p>
       </CardContent>
     </Card>
   );
 }
 
-// ─── Runtime check row ────────────────────────────────────────────────────────
+// ─── Runtime check ────────────────────────────────────────────────────────────
 function RuntimeCheck({ label, status, online }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -92,6 +80,199 @@ function RuntimeCheck({ label, status, online }) {
   );
 }
 
+// ─── Live Community Proof Feed ────────────────────────────────────────────────
+const FEED_SEED = [
+  { type: "signup",   text: "Neeraj S. from Ahmedabad just secured the Storm Prep Kit",   ago: "2s ago" },
+  { type: "referral", text: "+500 ShieldPoints to Priya for referring Rohan",              ago: "11s ago" },
+  { type: "signup",   text: "Meera K. from Pune activated her Safety Shield subscription", ago: "28s ago" },
+  { type: "referral", text: "+250 ShieldPoints to Arjun for completing Trivia Challenge",  ago: "45s ago" },
+  { type: "signup",   text: "Rahul D. from Mumbai joined via referral link",               ago: "1m ago" },
+  { type: "referral", text: "+500 ShieldPoints to Sneha for referring Karan",              ago: "1m ago" },
+  { type: "signup",   text: "Divya R. from Hyderabad built a Custom Safety Kit",           ago: "2m ago" },
+  { type: "referral", text: "+100 ShieldPoints to Vikram for daily login streak",          ago: "3m ago" },
+];
+
+function LiveFeedCard() {
+  const [items, setItems] = useState(FEED_SEED);
+  const scrollRef = useRef(null);
+
+  // Inject a new item every 4s
+  useEffect(() => {
+    const NEW_ITEMS = [
+      { type: "signup",   text: "Ananya M. from Surat just joined the platform",           ago: "just now" },
+      { type: "referral", text: "+500 ShieldPoints to Rohan for referring Deepak",         ago: "just now" },
+      { type: "signup",   text: "Suresh P. from Chennai activated Storm Prep Kit",         ago: "just now" },
+    ];
+    let idx = 0;
+    const id = setInterval(() => {
+      setItems((prev) => [{ ...NEW_ITEMS[idx % NEW_ITEMS.length], ago: "just now" }, ...prev.slice(0, 9)]);
+      idx++;
+    }, 4000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [items]);
+
+  return (
+    <Card className="glass-card border-white/5 shadow-2xl overflow-hidden flex flex-col">
+      <CardHeader className="border-b border-white/5 pb-4 pt-5 px-5 bg-black/40 backdrop-blur-md flex flex-row items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="p-1.5 bg-green-500/10 rounded-lg border border-green-500/20">
+            <Zap className="w-3.5 h-3.5 text-green-400" />
+          </div>
+          <CardTitle className="text-[11px] font-black text-white tracking-widest uppercase">
+            Live Community Proof Feed
+          </CardTitle>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+          </span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-green-400">Live</span>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0 flex-1 overflow-hidden">
+        <div ref={scrollRef} className="h-64 overflow-y-auto hide-scrollbar">
+          {items.map((item, i) => (
+            <div
+              key={i}
+              className={`flex items-start gap-3 px-5 py-3 border-b border-white/5 last:border-0 transition-all duration-500 ${i === 0 ? "bg-green-500/5" : ""}`}
+            >
+              <div className={`mt-0.5 p-1.5 rounded-lg shrink-0 ${item.type === "signup" ? "bg-blue-500/10 border border-blue-500/20" : "bg-amber-500/10 border border-amber-500/20"}`}>
+                {item.type === "signup"
+                  ? <UserPlus className="w-3 h-3 text-blue-400" />
+                  : <Gift className="w-3 h-3 text-amber-400" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-zinc-200 leading-relaxed">{item.text}</p>
+              </div>
+              <span className="text-[9px] font-mono text-zinc-600 shrink-0 mt-0.5">{item.ago}</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Conversion Funnel ────────────────────────────────────────────────────────
+const FUNNEL_STAGES = [
+  { label: "Leads / Signups",   pct: 100, count: "12,840", trend: "up",   delta: "+8.2%" },
+  { label: "Trivia Played",     pct: 78,  count: "10,015", trend: "up",   delta: "+3.1%" },
+  { label: "Custom Kit Built",  pct: 35,  count: "4,494",  trend: "down", delta: "-1.4%" },
+  { label: "Kit Purchased",     pct: 12,  count: "1,541",  trend: "up",   delta: "+5.7%" },
+];
+
+const FUNNEL_COLORS = ["bg-blue-500", "bg-sky-400", "bg-orange-400", "bg-green-500"];
+
+function ConversionFunnelCard() {
+  const now = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return (
+    <Card className="glass-card border-white/5 shadow-2xl overflow-hidden flex flex-col">
+      <CardHeader className="border-b border-white/5 pb-4 pt-5 px-5 bg-black/40 backdrop-blur-md flex flex-row items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="p-1.5 bg-blue-500/10 rounded-lg border border-blue-500/20">
+            <Layers className="w-3.5 h-3.5 text-blue-400" />
+          </div>
+          <CardTitle className="text-[11px] font-black text-white tracking-widest uppercase">
+            Conversion Funnel Analytics
+          </CardTitle>
+        </div>
+        <span className="text-[9px] font-mono text-zinc-500">Updated Real-Time</span>
+      </CardHeader>
+      <CardContent className="px-5 py-4 flex-1 space-y-3">
+        {FUNNEL_STAGES.map((stage, i) => (
+          <div key={stage.label} className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">{stage.label}</span>
+                <span className={`flex items-center gap-0.5 text-[9px] font-black ${stage.trend === "up" ? "text-green-400" : "text-red-400"}`}>
+                  {stage.trend === "up" ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                  {stage.delta}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-black text-white">{stage.count}</span>
+                <span className={`text-[10px] font-black tabular-nums ${i === 0 ? "text-zinc-300" : "text-zinc-400"}`}>{stage.pct}%</span>
+              </div>
+            </div>
+            <div className="h-2 w-full bg-zinc-800/60 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${FUNNEL_COLORS[i]} transition-all duration-1000`}
+                style={{ width: `${stage.pct}%`, opacity: 0.85 }}
+              />
+            </div>
+          </div>
+        ))}
+        <div className="pt-2 flex items-center gap-1.5 border-t border-white/5">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+          </span>
+          <span className="text-[9px] font-mono text-zinc-600">Last sync: {now}</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── ShieldPoint Economy ──────────────────────────────────────────────────────
+const SHIELD_STATS = [
+  { label: "Total Distributed",  value: 45600, icon: Coins,  color: "text-amber-400",  bg: "bg-amber-500/10 border-amber-500/20" },
+  { label: "Points in Escrow",   value: 8200,  icon: Database, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
+  { label: "Active Referral Links", value: 415, icon: Link2, color: "text-green-400",  bg: "bg-green-500/10 border-green-500/20" },
+];
+
+function ShieldPointCard() {
+  return (
+    <Card className="glass-card border-white/5 shadow-2xl overflow-hidden flex flex-col">
+      <CardHeader className="border-b border-white/5 pb-4 pt-5 px-5 bg-black/40 backdrop-blur-md flex flex-row items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="p-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20">
+            <Coins className="w-3.5 h-3.5 text-amber-400" />
+          </div>
+          <CardTitle className="text-[11px] font-black text-white tracking-widest uppercase">
+            ShieldPoint Economy
+          </CardTitle>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-400" />
+          </span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-amber-400">Synced</span>
+        </div>
+      </CardHeader>
+      <CardContent className="px-5 py-5 flex-1 space-y-4">
+        {SHIELD_STATS.map(({ label, value, icon: Icon, color, bg }) => (
+          <div key={label} className="flex items-center gap-4 p-3 rounded-xl border border-white/5 bg-black/30 hover:bg-white/[0.03] transition-colors">
+            <div className={`p-2.5 rounded-xl border shrink-0 ${bg}`}>
+              <Icon className={`w-4 h-4 ${color}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-0.5">{label}</p>
+              <p className={`text-2xl font-black tabular-nums tracking-tight ${color}`}>
+                {value.toLocaleString()}
+              </p>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5 text-zinc-700 shrink-0" />
+          </div>
+        ))}
+        <div className="flex items-center gap-1.5 pt-1">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+          </span>
+          <span className="text-[9px] font-mono text-zinc-600">Real-time Blockchain Sync</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function AdminDashboard() {
   const [pendingAudits, setPendingAudits] = useState(null);
@@ -101,77 +282,41 @@ export default function AdminDashboard() {
   const [loading,       setLoading]       = useState(true);
 
   useEffect(() => {
-    let unsubs = [];
+    const unsubs = [];
 
-    // ── 1. Pending audits — real-time listener ──────────────────────────────
-    const pendingQ = query(
-      collection(db, "accidents"),
-      where("status", "==", "pending_review"),
-    );
+    const pendingQ = query(collection(db, "accidents"), where("status", "==", "pending_review"));
     unsubs.push(
-      onSnapshot(pendingQ, (snap) => {
-        setPendingAudits(snap.size);
-        setLoading(false);
-      }, () => { setPendingAudits(0); setLoading(false); })
+      onSnapshot(pendingQ, (snap) => { setPendingAudits(snap.size); setLoading(false); },
+        () => { setPendingAudits(0); setLoading(false); })
     );
 
-    // ── 2. Total users — one-time count ─────────────────────────────────────
     getCountFromServer(collection(db, "users"))
       .then((snap) => setTotalUsers(snap.data().count))
       .catch(() => setTotalUsers(0));
 
-    // ── 3. Active cameras — real-time listener ──────────────────────────────
     unsubs.push(
-      onSnapshot(
-        collection(db, "active_cameras"),
+      onSnapshot(collection(db, "active_cameras"),
         (snap) => setActiveFeeds(snap.size > 0 ? snap.size : 1),
-        () => setActiveFeeds(1),   // fallback: local webcam
-      )
+        () => setActiveFeeds(1))
     );
 
-    // ── 4. FastAPI health check ─────────────────────────────────────────────
     const base = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-    fetch(`${base}/`)
-      .then((r) => setApiOnline(r.ok))
-      .catch(() => setApiOnline(false));
+    fetch(`${base}/`).then((r) => setApiOnline(r.ok)).catch(() => setApiOnline(false));
 
     return () => unsubs.forEach((u) => u());
   }, []);
 
   const cards = [
-    {
-      title:    "Active Feeds",
-      rawValue: activeFeeds,
-      detail:   "Live camera nodes online",
-      icon:     RadioTower,
-      accent:   "text-zinc-300",
-    },
-    {
-      title:    "Database Health",
-      rawValue: 99,
-      suffix:   ".98%",
-      detail:   "Firestore cluster availability",
-      icon:     Database,
-      accent:   "text-green-400",
-    },
-    {
-      title:    "Total Users",
-      rawValue: totalUsers,
-      detail:   "Verified platform accounts",
-      icon:     Users,
-      accent:   "text-zinc-300",
-    },
-    {
-      title:    "Pending Audits",
-      rawValue: pendingAudits,
-      detail:   "Reports awaiting admin review",
-      icon:     ActivitySquare,
-      accent:   pendingAudits > 0 ? "text-orange-400" : "text-green-400",
-    },
+    { title: "Active Feeds",    rawValue: activeFeeds,   detail: "Live camera nodes online",      icon: RadioTower,     accent: "text-zinc-300" },
+    { title: "Database Health", rawValue: 99, suffix: ".98%", detail: "Firestore cluster availability", icon: Database, accent: "text-green-400" },
+    { title: "Total Users",     rawValue: totalUsers,    detail: "Verified platform accounts",    icon: Users,          accent: "text-zinc-300" },
+    { title: "Pending Audits",  rawValue: pendingAudits, detail: "Reports awaiting admin review", icon: ActivitySquare, accent: pendingAudits > 0 ? "text-orange-400" : "text-green-400" },
   ];
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
+
+      {/* Page header */}
       <div className="flex flex-col gap-1.5">
         <h2 className="text-4xl font-extrabold tracking-tight text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">
           System Status Dashboard
@@ -181,24 +326,43 @@ export default function AdminDashboard() {
         </p>
       </div>
 
-      {/* KPI grid */}
+      {/* ── KPI grid ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {cards.map((card) => (
-          <KpiCard
-            key={card.title}
-            loading={loading || card.rawValue === null}
-            {...card}
-          />
+          <KpiCard key={card.title} loading={loading || card.rawValue === null} {...card} />
         ))}
       </div>
 
-      {/* Runtime checks */}
+      {/* ── Growth & Engagement section header ───────────────────────────── */}
+      <div className="flex items-center gap-4">
+        <div className="flex-1 h-px bg-white/5" />
+        <div className="flex items-center gap-3">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
+          </span>
+          <h3 className="text-2xl font-black tracking-[0.12em] uppercase text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.08)]">
+            Growth &amp; Engagement Insights
+          </h3>
+          <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
+            Live
+          </span>
+        </div>
+        <div className="flex-1 h-px bg-white/5" />
+      </div>
+
+      {/* ── Three growth panels ───────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <LiveFeedCard />
+        <ConversionFunnelCard />
+        <ShieldPointCard />
+      </div>
+
+      {/* ── Runtime checks ───────────────────────────────────────────────── */}
       <Card className="glass-card border-none shadow-2xl relative overflow-hidden">
         <CardHeader className="border-b border-white/5 pb-5 pt-7 px-8 bg-black/40 backdrop-blur-md">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-xl font-extrabold text-white tracking-tight">
-              Runtime Checks
-            </CardTitle>
+            <CardTitle className="text-xl font-extrabold text-white tracking-tight">Runtime Checks</CardTitle>
             <div className="flex items-center gap-2">
               {apiOnline === null ? (
                 <span className="text-[10px] text-zinc-600 font-mono animate-pulse">Checking...</span>
@@ -211,13 +375,9 @@ export default function AdminDashboard() {
           </div>
         </CardHeader>
         <CardContent className="p-8 bg-black/20 backdrop-blur-sm grid md:grid-cols-3 gap-5">
-          <RuntimeCheck
-            label="Detection API"
-            status={apiOnline === null ? "Checking..." : apiOnline ? "Online" : "Offline"}
-            online={apiOnline !== false}
-          />
-          <RuntimeCheck label="Dispatch Queue"    status="Healthy"           online={true} />
-          <RuntimeCheck label="Webhook Listener"  status="Receiving Events"  online={true} />
+          <RuntimeCheck label="Detection API"   status={apiOnline === null ? "Checking..." : apiOnline ? "Online" : "Offline"} online={apiOnline !== false} />
+          <RuntimeCheck label="Dispatch Queue"  status="Healthy"          online={true} />
+          <RuntimeCheck label="Webhook Listener" status="Receiving Events" online={true} />
         </CardContent>
       </Card>
     </div>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ShieldAlert, LayoutDashboard, Users, Brain, Route, FileSearch, LogOut } from 'lucide-react';
+import { ShieldAlert, LayoutDashboard, Users, Brain, Route, FileSearch, LogOut, MapPin } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export const Sidebar = () => {
@@ -9,31 +9,12 @@ export const Sidebar = () => {
     const displayName = user?.fullname || user?.email || "Administrator";
 
     const navItems = [
-        {
-            label: 'System Overview',
-            path: '/admin/dashboard',
-            icon: LayoutDashboard,
-        },
-        {
-            label: 'User Management',
-            path: '/admin/users',
-            icon: Users,
-        },
-        {
-            label: 'Model Config',
-            path: '/admin/config',
-            icon: Brain,
-        },
-        {
-            label: 'Dispatch Routing',
-            path: '/admin/dispatch',
-            icon: Route,
-        },
-        {
-            label: 'Report Audit',
-            path: '/admin/reports',
-            icon: FileSearch,
-        },
+        { label: 'System Overview',    path: '/admin/dashboard', icon: LayoutDashboard },
+        { label: 'Live Incident Map',  path: '/admin/incident-map', icon: MapPin },
+        { label: 'User Management',    path: '/admin/users',     icon: Users },
+        { label: 'Model Config',       path: '/admin/config',    icon: Brain },
+        { label: 'Dispatch Routing',   path: '/admin/dispatch',  icon: Route },
+        { label: 'Report Audit',       path: '/admin/reports',   icon: FileSearch },
     ];
 
     const isActive = (path) => location.pathname === path;

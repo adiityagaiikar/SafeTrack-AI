@@ -49,7 +49,7 @@ async def detect_accident_route(request: DetectRequest, user: dict = Depends(get
                 # Harmonize with frontend: both should use 'contacts'
                 contacts = user_doc.to_dict().get("contacts", [])
             
-            message = f"🚨 EMERGENCY: An accident involving {user.get('email', 'a user')} has been detected. Severity: {accident_data['severity']}"
+            message = f"🚨 CRASH ALERT\nSeverity: {accident_data['severity']}\nUser: {user.get('email', 'unknown')}"
             send_emergency_alert(contacts, message)
             
         return {

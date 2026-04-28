@@ -24,6 +24,8 @@ try:
 except Exception:
     YOLO = None
 
+from app.services.email_service import send_emergency_email
+
 try:
     from twilio.rest import Client
 except Exception:
@@ -110,6 +112,7 @@ class AutonomousIncidentPayload(BaseModel):
     lng: float | None = None
     snapshot_base64: str                          # primary snapshot (T=0)
     snapshots: list[str] = []                     # additional burst snapshots
+    user_email: str | None = None
 
 
 @app.post("/api/incidents/autonomous_log")
@@ -185,12 +188,9 @@ async def autonomous_log_incident(payload: AutonomousIncidentPayload):
         sms_error = "Twilio credentials or phone numbers are missing"
     else:
         sms_body = (
-            f"🚨 CRITICAL COLLISION DETECTED.\n"
-            f"Audit ID: {audit_id}\n"
+            f"🚨 CRASH ALERT\n"
             f"Severity: Critical\n"
-            f"Location: {geo_location}\n"
-            f"Google Maps: https://maps.google.com/?q={payload.lat},{payload.lng}\n"
-            f"Immediate response required."
+            f"Maps: https://maps.google.com/?q={payload.lat},{payload.lng}"
         )
         try:
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
@@ -198,6 +198,20 @@ async def autonomous_log_incident(payload: AutonomousIncidentPayload):
             sms_dispatched = True
         except Exception as twilio_err:
             sms_error = str(twilio_err)
+
+    email_dispatched = False
+    if payload.user_email:
+        # Send an email with identical content to the logged-in user
+        email_body = (
+            f"🚨 CRASH ALERT\n"
+            f"Severity: Critical\n"
+            f"Maps: https://maps.google.com/?q={payload.lat},{payload.lng}"
+        )
+        try:
+            send_emergency_email(payload.user_email, email_body)
+            email_dispatched = True
+        except Exception as e:
+            print(f"Email error: {e}")
 
     last_autonomous_incident_time = now
     return {
@@ -207,6 +221,7 @@ async def autonomous_log_incident(payload: AutonomousIncidentPayload):
         "db_saved":      True,
         "sms_dispatched": sms_dispatched,
         "sms_error":     sms_error,
+        "email_dispatched": email_dispatched,
     }
 
 

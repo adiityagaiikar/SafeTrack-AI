@@ -9,15 +9,23 @@ from ultralytics import YOLO
 _MODEL_PATH = os.path.join(os.path.dirname(__file__), 'yolov8n.pt')
 model = YOLO(_MODEL_PATH)
 
+# ── COCO vehicle class IDs — ONLY these classes participate in collision logic ─
+VEHICLE_CLASSES = {2, 3, 5, 7}   # car, motorcycle, bus, truck
+
 # Detection thresholds
-CONF_GENERAL          = 0.25   # base detection threshold
-CONF_CRITICAL         = 0.60   # high-confidence filter for CRITICAL alerts
+CONF_GENERAL          = 0.30   # raised from 0.25 — filter out low-quality detections
+CONF_CRITICAL         = 0.60   # high-confidence filter for severity classification
 IOU_THRESHOLD         = 0.45   # NMS suppression — prevents box doubling
-SPEED_THRESHOLD       = 5.0    # px/s below which a sudden stop is flagged
-PROLONGED_FRAMES      = 30     # consecutive frames to confirm prolonged collision
-MIN_COLLISION_DIST    = 50     # pixel proximity that triggers proximity alert
 TEMPORAL_WINDOW       = 3      # frames kept for moving-average smoothing
-COLLISION_IOU_TRIGGER = 0.2    # IoU above which two boxes are "colliding"
+
+# ── Three-gate accident confirmation thresholds ──────────────────────────────
+COLLISION_IOU_TRIGGER  = 0.45  # raised from 0.2 — only real physical overlap counts
+MIN_COLLISION_DIST_PX  = 30    # lowered from 50 — centre-to-centre must be VERY close
+TEMPORAL_GLITCH_FRAMES = 15    # raised from 10 — must persist ≥15 consecutive frames
+VELOCITY_DROP_RATIO    = 0.30  # tightened — current speed must be ≤ 30% of rolling avg (70% drop)
+VELOCITY_HISTORY_LEN   = 8     # raised from 5 — longer rolling average is more stable
+MIN_MEANINGFUL_SPEED   = 8.0   # px/frame — object must have been moving at this speed before drop counts
+PROLONGED_STATIONARY   = 150   # raised from 30 — ~5 seconds at 30fps, as last-resort safety net
 
 # CLAHE pre-processor (applied per-frame before inference)
 _clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -69,6 +77,11 @@ def _smooth_detections(buffer: deque) -> list[dict]:
     return latest
 
 
+def _box_centre(box: list) -> tuple[float, float]:
+    """Return the (cx, cy) centre of an [x1, y1, x2, y2] box."""
+    return ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+
+
 def calculate_iou(box1, box2) -> float:
     x1 = max(box1[0], box2[0]);  y1 = max(box1[1], box2[1])
     x2 = min(box1[2], box2[2]);  y2 = min(box1[3], box2[3])
@@ -79,21 +92,54 @@ def calculate_iou(box1, box2) -> float:
     return inter / union if union > 0 else 0.0
 
 
-def calculate_speed(box1, box2, time_diff: float) -> float:
-    dist = ((box1[0] - box2[0]) ** 2 + (box1[1] - box2[1]) ** 2) ** 0.5
-    return dist / time_diff if time_diff > 0 else 0.0
+def _pixel_speed(box_prev: list, box_curr: list) -> float:
+    """Euclidean displacement of box centres between two frames (px/frame)."""
+    cx1, cy1 = _box_centre(box_prev)
+    cx2, cy2 = _box_centre(box_curr)
+    return ((cx2 - cx1) ** 2 + (cy2 - cy1) ** 2) ** 0.5
+
+
+def _check_velocity_drop(vel_histories: dict, involved_indices: list) -> bool:
+    """
+    Return True if at least one of the involved objects has experienced a
+    GENUINE crash-like velocity drop:
+      - The object was previously moving at a meaningful speed (rolling avg > MIN_MEANINGFUL_SPEED)
+      - Its current speed dropped to ≤ VELOCITY_DROP_RATIO of the rolling average
+    """
+    for idx in involved_indices:
+        history = vel_histories.get(idx)
+        if not history or len(history) < 3:
+            continue
+        # Use all-but-last entries for the "before" average, last entry for "now"
+        before = list(history)[:-1]
+        rolling_avg = sum(before) / len(before)
+        current     = history[-1]
+        # Object must have been moving at a meaningful speed, then suddenly stopped
+        if rolling_avg > MIN_MEANINGFUL_SPEED and current <= rolling_avg * VELOCITY_DROP_RATIO:
+            return True
+    return False
 
 
 def detect_accident(video_path: str) -> dict:
     """
     Process a video file and return a structured detection result.
 
+    Three-gate accident confirmation (ALL must pass simultaneously):
+      1. Spatial overlap — IoU > 0.45 between two VEHICLE bounding boxes,
+         OR centre-to-centre distance < 30 px
+      2. Temporal persistence — overlap persists for ≥ 15 consecutive frames
+      3. Velocity drop — at least one vehicle was moving at meaningful speed
+         and shows ≥ 70% sudden deceleration
+
+    Only COCO vehicle classes (car, motorcycle, bus, truck) are considered.
+    Non-vehicle detections (people, animals, objects) are excluded entirely.
+
     Returns:
         {
             "accident": bool,
             "severity": "HIGH" | "MEDIUM" | "LOW" | "NONE",
             "collision_count": int,
-            "max_confidence": float,   # highest conf seen across all frames
+            "max_confidence": float,
             "frames_processed": int,
         }
     """
@@ -101,13 +147,16 @@ def detect_accident(video_path: str) -> dict:
     if not cap.isOpened():
         raise ValueError(f"Cannot open video: {video_path}")
 
-    accident_detected       = False
-    frame_counter           = 0
-    collision_count         = 0
-    prolonged_collision_cnt = 0
-    frames_processed        = 0
-    max_confidence          = 0.0
-    last_boxes: list        = []
+    accident_detected         = False
+    consecutive_collision_cnt = 0        # gate 2: temporal persistence counter
+    prolonged_collision_cnt   = 0        # last-resort stationary counter
+    collision_count           = 0        # total collision-candidate pair×frame count
+    frames_processed          = 0
+    max_confidence            = 0.0
+    last_boxes: list          = []
+
+    # Per-object velocity history (index → deque of speeds)
+    vel_histories: dict[int, deque] = {}
 
     # Rolling buffer for temporal smoothing
     det_buffer: deque = deque(maxlen=TEMPORAL_WINDOW)
@@ -131,12 +180,17 @@ def detect_accident(video_path: str) -> dict:
             verbose=False,
         )
 
-        # Build per-frame detection list (preserves conf + cls alongside box)
+        # ── Build per-frame detection list — VEHICLE CLASSES ONLY ────────────
         raw_dets: list[dict] = []
         for box in results[0].boxes:
             conf_val = float(box.conf.item())
             cls_val  = int(box.cls.item())
-            xyxy     = box.xyxy[0].cpu().numpy().tolist()
+
+            # CRITICAL FILTER: skip non-vehicle detections entirely
+            if cls_val not in VEHICLE_CLASSES:
+                continue
+
+            xyxy = box.xyxy[0].cpu().numpy().tolist()
             raw_dets.append({"box": xyxy, "conf": conf_val, "cls": cls_val})
             if conf_val > max_confidence:
                 max_confidence = conf_val
@@ -145,54 +199,78 @@ def detect_accident(video_path: str) -> dict:
         det_buffer.append(raw_dets)
         dets = _smooth_detections(det_buffer)
 
-        # ── Collision logic ──────────────────────────────────────────────────
+        # ── Update per-object velocity histories ─────────────────────────────
+        for i, det in enumerate(dets):
+            if i < len(last_boxes):
+                speed = _pixel_speed(last_boxes[i]["box"], det["box"])
+            else:
+                speed = 0.0
+            if i not in vel_histories:
+                vel_histories[i] = deque(maxlen=VELOCITY_HISTORY_LEN)
+            vel_histories[i].append(speed)
+
+        # Prune stale indices from velocity history
+        active_indices = set(range(len(dets)))
+        stale = [k for k in vel_histories if k not in active_indices]
+        for k in stale:
+            del vel_histories[k]
+
+        # ── Gate 1: Spatial overlap between VEHICLE pairs ────────────────────
         collision_this_frame = False
+        involved_objects: list[int] = []
+
         for i in range(len(dets)):
             for j in range(i + 1, len(dets)):
                 b1, b2 = dets[i]["box"], dets[j]["box"]
-                iou = calculate_iou(b1, b2)
 
-                if iou > COLLISION_IOU_TRIGGER:
+                # Gate 1a: IoU overlap — must be substantial (> 0.45)
+                iou = calculate_iou(b1, b2)
+                spatial_overlap = iou > COLLISION_IOU_TRIGGER
+
+                # Gate 1b: Centre proximity — extremely close only
+                if not spatial_overlap:
+                    cx1, cy1 = _box_centre(b1)
+                    cx2, cy2 = _box_centre(b2)
+                    pixel_dist = ((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2) ** 0.5
+                    spatial_overlap = pixel_dist < MIN_COLLISION_DIST_PX
+
+                if spatial_overlap:
                     collision_this_frame = True
                     collision_count += 1
-                    prolonged_collision_cnt += 1
+                    involved_objects.extend([i, j])
 
-                    # High-confidence filter: CRITICAL alert only if both
-                    # detections exceed the critical confidence threshold
-                    if (dets[i]["conf"] > CONF_CRITICAL and
-                            dets[j]["conf"] > CONF_CRITICAL):
-                        accident_detected = True
-                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
-                              f"CRITICAL collision — obj {i} & {j} "
-                              f"(conf {dets[i]['conf']:.2f}/{dets[j]['conf']:.2f})")
-
-                    if prolonged_collision_cnt >= PROLONGED_FRAMES:
-                        accident_detected = True
-                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
-                              f"Accident — prolonged collision ({PROLONGED_FRAMES} frames)")
-
-                dist = ((b1[0] - b2[0]) ** 2 + (b1[1] - b2[1]) ** 2) ** 0.5
-                if dist < MIN_COLLISION_DIST:
-                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
-                          f"Accident — close proximity obj {i} & {j}")
-
-        # Speed check against previous frame
-        for i, det in enumerate(dets):
-            if i < len(last_boxes):
-                speed = calculate_speed(last_boxes[i]["box"], det["box"], 1)
-                if speed < SPEED_THRESHOLD:
-                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
-                          f"Sudden stop — object {i} (speed {speed:.2f} px/s)")
-
+        # ── Gate 2: Temporal persistence ─────────────────────────────────────
         if collision_this_frame:
-            frame_counter += 1
-            if frame_counter >= 120:
+            consecutive_collision_cnt += 1
+            prolonged_collision_cnt  += 1
+        else:
+            consecutive_collision_cnt = 0
+            prolonged_collision_cnt   = 0
+
+        # ── Gate 3: Velocity drop — only when gates 1+2 pass ────────────────
+        if consecutive_collision_cnt >= TEMPORAL_GLITCH_FRAMES and not accident_detected:
+            unique_involved = list(set(involved_objects))
+            velocity_drop = _check_velocity_drop(vel_histories, unique_involved)
+
+            if velocity_drop:
                 accident_detected = True
                 print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
-                      f"Accident — no movement for 2 min")
-        else:
-            frame_counter = 0
-            prolonged_collision_cnt = 0
+                      f"ACCIDENT CONFIRMED — 3-gate filter passed: "
+                      f"spatial overlap (IoU>{COLLISION_IOU_TRIGGER}) "
+                      f"+ {consecutive_collision_cnt} consecutive frames "
+                      f"+ velocity drop detected (>{int((1-VELOCITY_DROP_RATIO)*100)}% decel)")
+
+        # ── Last-resort safety-net: extreme prolonged stationary overlap ─────
+        # Only fires after ~5 seconds of continuous overlap — virtually
+        # impossible in normal driving. Still requires velocity drop.
+        if prolonged_collision_cnt >= PROLONGED_STATIONARY and not accident_detected:
+            unique_involved = list(set(involved_objects))
+            velocity_drop = _check_velocity_drop(vel_histories, unique_involved)
+            if velocity_drop:
+                accident_detected = True
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                      f"Accident — prolonged stationary overlap "
+                      f"({PROLONGED_STATIONARY} frames) + velocity drop confirmed")
 
         last_boxes = dets
 
@@ -219,3 +297,4 @@ def detect_accident(video_path: str) -> dict:
         "max_confidence":   round(max_confidence, 3),
         "frames_processed": frames_processed,
     }
+

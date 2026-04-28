@@ -29,6 +29,11 @@
     border-color: var(--color-border);
   }
 
+  html {
+    height: 100vh;
+    overflow: hidden;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
@@ -36,8 +41,8 @@
     /* Sophisticated dark grey gradient, notably lighter */
     background: radial-gradient(circle at top, #3f3f46, #27272a 80%);
     background-attachment: fixed;
-    min-height: 100vh;
-    overflow-x: hidden;
+    height: 100vh;
+    overflow: hidden;
   }
 }
 
@@ -88,4 +93,21 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(161, 161, 170, 0.4);
+}
+
+/* ── Leaflet map containment — prevent it from breaking the flex layout ── */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  z-index: 0;
+}
+
+/* Ensure Leaflet controls sit above the map but below the app sidebar */
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 400 !important;
+}
+
+.leaflet-pane {
+  z-index: 200 !important;
 }

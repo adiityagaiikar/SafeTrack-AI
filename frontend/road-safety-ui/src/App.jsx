@@ -11,6 +11,7 @@ import ModelConfigPanel from "./pages/admin/ModelConfigPanel";
 import DispatchRouting from "./pages/admin/DispatchRouting";
 import ReportAuditQueue from "./pages/admin/ReportAuditQueue";
 import { UserManagement } from "./pages/admin/UserManagement";
+import LiveIncidentMap from "./pages/admin/LiveIncidentMap";
 import Overview from "./pages/dashboard/Overview";
 import BehaviorAnalytics from "./pages/dashboard/BehaviorAnalytics";
 import LiveStream from "./pages/dashboard/LiveStream";
@@ -100,8 +101,9 @@ function AppRoutes() {
 
           <Route element={<ProtectedRoute allowedRoles={["admin"]} />}>
             <Route path="/admin" element={<AdminLayout />}>
-              <Route path="dashboard" element={<AdminDashboard />} />
-              <Route path="config" element={<ModelConfigPanel />} />
+              <Route path="dashboard"    element={<AdminDashboard />} />
+              <Route path="incident-map" element={<LiveIncidentMap />} />
+              <Route path="config"       element={<ModelConfigPanel />} />
               <Route path="dispatch" element={<DispatchRouting />} />
               <Route path="reports" element={<ReportAuditQueue />} />
               <Route path="users" element={<UserManagement />} />

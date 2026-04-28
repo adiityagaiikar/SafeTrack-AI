@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { ShieldAlert, Zap, Radio, Scan, Eye, EyeOff, AlertTriangle } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const FRAME_W = 640;
@@ -204,6 +205,103 @@ function drawADASPath(ctx, cw, ch, proximityAlert, flashOn) {
   ctx.restore();
 }
 
+// ─── Distance threshold boundary lines ───────────────────────────────────────
+const WARN_DIST    = 1.5;   // metres — Warning Zone
+const CRIT_DIST    = 0.5;   // metres — Critical Impact Zone
+const DEPTH_BASE   = 0.30;  // perspective baseline for inverse-distance mapping
+
+function distToY(dist, vpY, ch) {
+  // Inverse-distance perspective: closer objects → lower on screen (larger Y)
+  const t = Math.min(DEPTH_BASE / Math.max(dist, 0.05), 1.0);
+  return vpY + (ch - vpY) * t;
+}
+
+function drawDistanceThresholds(ctx, cw, ch) {
+  const vpY = ch * 0.42;   // same vanishing-point horizon as drawADASPath
+  const pad = cw * 0.06;   // horizontal padding so lines don't touch edges
+
+  // ── Warning Zone (1.5 m) — dashed amber ──────────────────────────────────
+  const warnY = distToY(WARN_DIST, vpY, ch);
+  ctx.save();
+  ctx.setLineDash([12, 8]);
+  ctx.lineWidth   = 2;
+  ctx.strokeStyle = "#f59e0b";
+  ctx.shadowColor = "#f59e0b";
+  ctx.shadowBlur  = 12;
+  ctx.lineCap     = "round";
+  ctx.beginPath();
+  ctx.moveTo(pad, warnY);
+  ctx.lineTo(cw - pad, warnY);
+  ctx.stroke();
+
+  // Label badge — Warning
+  const wLbl    = "⚠ WARNING  1.5m";
+  const wFont   = 9.5;
+  ctx.font      = `bold ${wFont}px "JetBrains Mono","Fira Mono",monospace`;
+  const wTxtW   = ctx.measureText(wLbl).width;
+  const wBadgeW = wTxtW + 14;
+  const wBadgeH = wFont + 10;
+  const wBadgeX = cw - pad - wBadgeW - 4;
+  const wBadgeY = warnY - wBadgeH / 2;
+  ctx.setLineDash([]);
+  ctx.shadowBlur  = 0;
+  ctx.globalAlpha = 0.80;
+  ctx.fillStyle   = "rgba(15,23,42,0.75)";
+  if (ctx.roundRect) ctx.roundRect(wBadgeX, wBadgeY, wBadgeW, wBadgeH, 4);
+  else ctx.rect(wBadgeX, wBadgeY, wBadgeW, wBadgeH);
+  ctx.fill();
+  ctx.globalAlpha = 0.7;
+  ctx.strokeStyle = "#f59e0b";
+  ctx.lineWidth   = 0.8;
+  if (ctx.roundRect) ctx.roundRect(wBadgeX, wBadgeY, wBadgeW, wBadgeH, 4);
+  else ctx.rect(wBadgeX, wBadgeY, wBadgeW, wBadgeH);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle   = "#fbbf24";
+  ctx.fillText(wLbl, wBadgeX + 7, wBadgeY + wFont + 3);
+  ctx.restore();
+
+  // ── Critical Impact Zone (0.5 m) — solid red ─────────────────────────────
+  const critY = distToY(CRIT_DIST, vpY, ch);
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.lineWidth   = 2.5;
+  ctx.strokeStyle = "#ef4444";
+  ctx.shadowColor = "#ef4444";
+  ctx.shadowBlur  = 18;
+  ctx.lineCap     = "round";
+  ctx.beginPath();
+  ctx.moveTo(pad, critY);
+  ctx.lineTo(cw - pad, critY);
+  ctx.stroke();
+
+  // Label badge — Critical
+  const cLbl    = "🔴 CRITICAL  0.5m";
+  const cFont   = 9.5;
+  ctx.font      = `bold ${cFont}px "JetBrains Mono","Fira Mono",monospace`;
+  const cTxtW   = ctx.measureText(cLbl).width;
+  const cBadgeW = cTxtW + 14;
+  const cBadgeH = cFont + 10;
+  const cBadgeX = cw - pad - cBadgeW - 4;
+  const cBadgeY = critY - cBadgeH / 2;
+  ctx.shadowBlur  = 0;
+  ctx.globalAlpha = 0.80;
+  ctx.fillStyle   = "rgba(15,23,42,0.75)";
+  if (ctx.roundRect) ctx.roundRect(cBadgeX, cBadgeY, cBadgeW, cBadgeH, 4);
+  else ctx.rect(cBadgeX, cBadgeY, cBadgeW, cBadgeH);
+  ctx.fill();
+  ctx.globalAlpha = 0.7;
+  ctx.strokeStyle = "#ef4444";
+  ctx.lineWidth   = 0.8;
+  if (ctx.roundRect) ctx.roundRect(cBadgeX, cBadgeY, cBadgeW, cBadgeH, 4);
+  else ctx.rect(cBadgeX, cBadgeY, cBadgeW, cBadgeH);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle   = "#f87171";
+  ctx.fillText(cLbl, cBadgeX + 7, cBadgeY + cFont + 3);
+  ctx.restore();
+}
+
 // ─── YOLO-style bounding box + label chip ────────────────────────────────────
 function drawDetection(ctx, det, sx, sy) {
   const [x1, y1, x2, y2] = det.box ?? det.bbox ?? [0, 0, 0, 0];
@@ -255,6 +353,9 @@ function drawHUD(ctx, detections, cw, ch, flashOn, showOverlay, proximityAlert) 
   // 1. ADAS path — always visible when overlay is on
   drawADASPath(ctx, cw, ch, proximityAlert, flashOn);
 
+  // 2. Distance threshold boundary lines — Warning (1.5m) + Critical (0.5m)
+  drawDistanceThresholds(ctx, cw, ch);
+
   if (!detections.length) return;
 
   const sx = cw / FRAME_W;
@@ -297,6 +398,7 @@ export default function LiveStream() {
   const [isLockedDown, setIsLockedDown] = useState(false);
   const [criticalImpactLogged, setCriticalImpactLogged] = useState(false);
   const [locationData, setLocationData] = useState({ latitude: null, longitude: null });
+  const { currentUser } = useAuth();
 
   // Refs — hot-path reads never trigger re-renders
   const ws              = useRef(null);
@@ -437,6 +539,7 @@ export default function LiveStream() {
           lng:             locationData.longitude,
           snapshot_base64: snapshots[0],
           snapshots:       snapshots.slice(1),
+          user_email:      currentUser?.email || null,
         }),
       });
 
@@ -450,6 +553,9 @@ export default function LiveStream() {
         addLog("📱 Twilio SMS dispatched to emergency contact.", "danger");
       } else if (payload?.sms_error) {
         addLog(`⚠️ SMS failed: ${payload.sms_error}`, "warning");
+      }
+      if (payload?.email_dispatched) {
+        addLog(`📧 Email dispatched to ${currentUser?.email}.`, "danger");
       }
     } catch (err) {
       addLog(`Autonomous dispatch failed: ${err?.message || "unknown error"}`, "danger");

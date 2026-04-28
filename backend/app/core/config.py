@@ -17,6 +17,8 @@ class Settings(BaseSettings):
         "TWILIO_FROM_NUMBER",
         os.getenv("TWILIO_PHONE_NUMBER", os.getenv("TARGET_PHONE_NUMBER", "")),
     )
+    EMAIL_USER: str = os.getenv("EMAIL_USER", "")
+    EMAIL_PASS: str = os.getenv("EMAIL_PASS", "")
 
     class Config:
         env_file = ".env"

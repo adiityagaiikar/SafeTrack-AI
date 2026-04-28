@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import {
-  collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp,
+  collection, query, where, onSnapshot, doc, updateDoc, setDoc, serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/services/firebase";
-import { CheckCircle, Flag, FileSearch, Clock, AlertTriangle, ShieldAlert, Loader2 } from "lucide-react";
+import { CheckCircle, Flag, FileSearch, Clock, AlertTriangle, ShieldAlert, Loader2, BrainCircuit } from "lucide-react";
 
 const DISPATCH_SMS_ENDPOINT = "http://localhost:8000/api/dispatch/sms";
 const TEST_TARGET_PHONE_NUMBER = "+918879832851";
@@ -81,7 +81,8 @@ export default function ReportAuditQueue() {
   const [selected, setSelected]             = useState(null);
   const [loading, setLoading]               = useState(true);
   const [actionLoading, setActionLoading]   = useState(false);
-  const [toast, setToast]                   = useState(null); // { msg, type }
+  const [fpLoading, setFpLoading]           = useState(false);   // false positive loading state
+  const [toast, setToast]                   = useState(null);    // { msg, type }
 
   // ── Real-time Firestore listener ──────────────────────────────────────────
   useEffect(() => {
@@ -98,7 +99,7 @@ export default function ReportAuditQueue() {
           return {
             docId:    d.id,
             id:       incidentId(d.id),
-            timestamp: toDateString(raw.timestamp),
+            timestamp: toDateString(raw.timestamp ?? raw.created_at),
             severity:  normalizeSeverity(raw.severity, raw.accidentDetected ?? raw.accident),
             summary:
               raw.llm_summary ||
@@ -106,7 +107,7 @@ export default function ReportAuditQueue() {
               raw.report ||
               raw.summary ||
               "No AI summary available for this incident.",
-            location:  raw.location || "Unknown",
+            location:  raw.location || raw.geo_location || "Unknown",
             raw,
           };
         });
@@ -132,7 +133,7 @@ export default function ReportAuditQueue() {
   // ── Toast helper ──────────────────────────────────────────────────────────
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
   };
 
   // ── Approve & Escalate ───────────────────────────────────────────────────
@@ -143,17 +144,17 @@ export default function ReportAuditQueue() {
     const activeIncident = selected;
 
     try {
-      await updateDoc(doc(db, "accidents", activeIncident.docId), {
+      // 1. Update Firestore status immediately — don't block on SMS
+      const updatePromise = updateDoc(doc(db, "accidents", activeIncident.docId), {
         status:      "dispatched",
         reviewedAt:  serverTimestamp(),
         reviewAction: "escalated",
       });
 
-      const dispatchResponse = await fetch(DISPATCH_SMS_ENDPOINT, {
+      // 2. Fire SMS dispatch in parallel — don't let it block the UI
+      const smsPromise = fetch(DISPATCH_SMS_ENDPOINT, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           incident_id: activeIncident.id,
           severity: activeIncident.severity,
@@ -161,12 +162,16 @@ export default function ReportAuditQueue() {
         }),
       });
 
-      if (!dispatchResponse.ok) {
-        throw new Error(`Dispatch API failed with status ${dispatchResponse.status}`);
-      }
+      // Wait for both concurrently
+      const [, smsResponse] = await Promise.all([updatePromise, smsPromise]);
 
-      showToast("Dispatch SMS Sent Successfully.", "success");
+      if (!smsResponse.ok) {
+        showToast("Database updated. SMS delivery pending.", "warning");
+      } else {
+        showToast("Dispatch SMS Sent Successfully.", "success");
+      }
     } catch (e) {
+      console.error("Escalation error:", e);
       showToast("Database updated, but SMS Dispatch Failed.", "error");
     } finally {
       setActionLoading(false);
@@ -188,6 +193,42 @@ export default function ReportAuditQueue() {
       showToast("Failed to flag report.", "error");
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // ── False Positive → Data Lake Pipeline ───────────────────────────────────
+  const handleFalsePositive = async (incidentData) => {
+    if (!incidentData || fpLoading) return;
+    setFpLoading(true);
+
+    try {
+      // 1. Copy the full incident data to the training_data_lake collection
+      //    Uses the existing audit_id (or doc ID) as the document ID
+      const lakeDocId = incidentData.raw?.audit_id || incidentData.docId;
+      const lakePayload = {
+        ...incidentData.raw,
+        retrain_status:       "pending_review",
+        original_doc_id:      incidentData.docId,
+        flagged_at:           serverTimestamp(),
+        flagged_reason:       "false_positive",
+        source_collection:    "accidents",
+      };
+      await setDoc(doc(db, "training_data_lake", lakeDocId), lakePayload);
+
+      // 2. Update the original incident status to "false_positive"
+      //    (preserves the historical record — does NOT delete)
+      await updateDoc(doc(db, "accidents", incidentData.docId), {
+        status:       "false_positive",
+        reviewedAt:   serverTimestamp(),
+        reviewAction: "false_positive_flagged",
+      });
+
+      showToast("Data successfully isolated for YOLOv8 fine-tuning.", "success");
+    } catch (e) {
+      console.error("[FalsePositive] Pipeline error:", e);
+      showToast("Failed to isolate data. Check Firebase rules.", "error");
+    } finally {
+      setFpLoading(false);
     }
   };
 
@@ -214,7 +255,7 @@ export default function ReportAuditQueue() {
           Report Audit Queue
         </h2>
         <p className="text-zinc-500 font-medium text-lg">
-          Real-time incident review — approve or escalate pending anomaly reports.
+          Real-time incident review — approve, escalate, or flag false positives for model retraining.
         </p>
       </div>
 
@@ -323,22 +364,44 @@ export default function ReportAuditQueue() {
               </div>
 
               {/* Action buttons */}
-              <div className="mt-4 flex gap-3">
+              <div className="mt-4 space-y-3">
+                {/* Primary actions row */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleApprove}
+                    disabled={actionLoading || fpLoading || !selected}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-sm hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_28px_rgba(16,185,129,0.5)] disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                    {actionLoading ? "Escalating..." : "Approve & Escalate"}
+                  </button>
+                  <button
+                    onClick={handleFlag}
+                    disabled={actionLoading || fpLoading || !selected}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 text-black font-black text-sm hover:bg-orange-400 transition-all shadow-[0_0_20px_rgba(249,115,22,0.3)] hover:shadow-[0_0_28px_rgba(249,115,22,0.5)] disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Flag className="w-4 h-4" />
+                    Flag for Review
+                  </button>
+                </div>
+
+                {/* False Positive → Data Lake button */}
                 <button
-                  onClick={handleApprove}
-                  disabled={actionLoading || !selected}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-sm hover:bg-emerald-400 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_28px_rgba(16,185,129,0.5)] disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() => handleFalsePositive(selected)}
+                  disabled={actionLoading || fpLoading || !selected}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-transparent border border-slate-600 text-slate-400 font-bold text-sm transition-all duration-200 hover:bg-slate-800 hover:text-white hover:border-slate-500 hover:shadow-[0_0_20px_rgba(148,163,184,0.1)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                  {actionLoading ? "Escalating..." : "Approve & Escalate"}
-                </button>
-                <button
-                  onClick={handleFlag}
-                  disabled={actionLoading || !selected}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 text-black font-black text-sm hover:bg-orange-400 transition-all shadow-[0_0_20px_rgba(249,115,22,0.3)] hover:shadow-[0_0_28px_rgba(249,115,22,0.5)] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Flag className="w-4 h-4" />
-                  Flag for Review
+                  {fpLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Moving to Data Lake...
+                    </>
+                  ) : (
+                    <>
+                      <BrainCircuit className="w-4 h-4" />
+                      Flag as False Positive
+                    </>
+                  )}
                 </button>
               </div>
             </>
