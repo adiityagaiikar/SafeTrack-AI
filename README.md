@@ -113,4 +113,4 @@ VITE_FIREBASE_APP_ID=your_app_id
 3. **Execution:** Backend fetches user role via Firebase Admin. It then locally streams down the video, runs the Ultralytics YOLO inference model wrapper, records the metrics into Firestore, and cleans up the temporary traces.
 4. **Summary / Dashboard:** Any generated incident can be analyzed using `POST /api/report/generate-report` bridging to Google Gemini rendering formatted Markdown intelligence. Authority levels view metrics via Frontend Firebase endpoints.
 
-hello  
+hello    
