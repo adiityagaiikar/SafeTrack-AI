@@ -101,7 +101,7 @@ VITE_FIREBASE_APP_ID=your_app_id
    ```
 3. Run the Vite development server:
    ```bash
-   npm run dev
+   20
    ```
    The frontend will be available at the displayed localhost URL (usually [http://localhost:5173](http://localhost:5173)).
 

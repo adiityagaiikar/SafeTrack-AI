@@ -17,7 +17,8 @@ L.Icon.Default.mergeOptions({
 const DEFAULT_ORIGIN = { lat: 28.6139, lng: 77.2090, label: "New Delhi" };
 const DEFAULT_DESTINATION = { lat: 28.5355, lng: 77.3910, label: "Noida Sector 18" };
 const EARTH_RADIUS_M = 6371000;
-const DETOUR_OFFSET_M = 1000;
+const DETOUR_CLEARANCE_M = 400;   // extra buffer beyond zone radius
+const MAX_DETOUR_ITERATIONS = 4;  // max passes to resolve all intersections
 
 const DEMO_GEOCODE = {
   delhi: { lat: 28.6139, lng: 77.2090 },
@@ -108,16 +109,19 @@ function checkIntersection(routePath, dangerZones) {
 }
 
 function computeDetourPoint(intersection, routePath) {
-  const idx = intersection.pointIndex;
+  const idx    = intersection.pointIndex;
   const center = { lat: intersection.zone.lat, lng: intersection.zone.lng };
-  const prev = routePath[Math.max(0, idx - 1)] || routePath[idx];
-  const next = routePath[Math.min(routePath.length - 1, idx + 1)] || routePath[idx];
+  const prev   = routePath[Math.max(0, idx - 1)] || routePath[idx];
+  const next   = routePath[Math.min(routePath.length - 1, idx + 1)] || routePath[idx];
   const baseBearing = bearingDegrees(prev, next);
 
-  const targetOffset = Math.max(DETOUR_OFFSET_M, intersection.zone.radius + 150);
-  const optionA = destinationPoint(center, targetOffset, baseBearing + 90);
-  const optionB = destinationPoint(center, targetOffset, baseBearing - 90);
+  // Offset must fully clear the zone radius + extra buffer
+  const clearance = intersection.zone.radius + DETOUR_CLEARANCE_M;
 
+  const optionA = destinationPoint(center, clearance, baseBearing + 90);
+  const optionB = destinationPoint(center, clearance, baseBearing - 90);
+
+  // Pick the option that is closer to the original route point (less deviation)
   const distA = haversineDistanceMeters(optionA, routePath[idx]);
   const distB = haversineDistanceMeters(optionB, routePath[idx]);
   return distA < distB ? optionA : optionB;
@@ -175,7 +179,7 @@ export default function PredictiveRouting() {
   const [selectedDestination, setSelectedDestination] = useState({ lat: DEFAULT_DESTINATION.lat, lng: DEFAULT_DESTINATION.lng });
   const [routePath, setRoutePath] = useState([]);
   const [routeLoading, setRouteLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("Ready for Route Analysis.");
+  const [statusMessage, setStatusMessage] = useState("Ready — enter origin and destination.");
   const [routeError, setRouteError] = useState("");
   const [intersectedZoneIds, setIntersectedZoneIds] = useState([]);
   const [pulseTick, setPulseTick] = useState(false);
@@ -213,28 +217,69 @@ export default function PredictiveRouting() {
         if (!intersections.length) {
           setRoutePath(primaryPath);
           setIntersectedZoneIds([]);
-          setStatusMessage("Ready for Route Analysis.");
+          setStatusMessage("✅ Route is clear — no blackspots detected.");
           return;
         }
 
-        const firstHit = intersections[0];
-        setIntersectedZoneIds([...new Set(intersections.map((item) => item.zone.id))]);
-        setStatusMessage(`⚠️ PRIMARY ROUTE AT RISK: Intersection detected at ${firstHit.zone.name}. Engaging autonomous detour...`);
+        // ── Iterative detour: keep rerouting until path is clear or max iterations hit ──
+        let currentWaypoints = [origin, destination];
+        let currentPath = primaryPath;
+        let allHitZoneIds = new Set(intersections.map((i) => i.zone.id));
+        let lastHitName = intersections[0].zone.name;
+        let iteration = 0;
 
-        const detourPoint = computeDetourPoint(firstHit, primaryPath);
-        const detourPath = await fetchOsrmRoute([origin, detourPoint, destination]);
+        setIntersectedZoneIds([...allHitZoneIds]);
+        setStatusMessage(`⚠️ ${allHitZoneIds.size} blackspot(s) detected. Computing safe detour...`);
+
+        while (iteration < MAX_DETOUR_ITERATIONS) {
+          const hits = checkIntersection(currentPath, dangerZones);
+          if (!hits.length) break; // path is now clear
+
+          // Insert a detour waypoint for the first remaining hit
+          const hit = hits[0];
+          lastHitName = hit.zone.name;
+          const detourPt = computeDetourPoint(hit, currentPath);
+
+          // Insert detour point between origin and destination in waypoints
+          // Find the best insertion position (after the hit point's segment)
+          const insertAfter = Math.max(0, Math.floor(currentWaypoints.length / 2) - 1);
+          const newWaypoints = [
+            ...currentWaypoints.slice(0, insertAfter + 1),
+            detourPt,
+            ...currentWaypoints.slice(insertAfter + 1),
+          ];
+
+          if (cancelled) return;
+
+          try {
+            currentPath = await fetchOsrmRoute(newWaypoints);
+            currentWaypoints = newWaypoints;
+          } catch {
+            break; // OSRM failed with too many waypoints — use last good path
+          }
+
+          iteration++;
+        }
+
         if (cancelled) return;
 
-        const safeIntersections = checkIntersection(detourPath, dangerZones);
+        const remainingHits = checkIntersection(currentPath, dangerZones);
         const primaryDistance = routeDistanceMeters(primaryPath);
-        const detourDistance = routeDistanceMeters(detourPath);
+        const detourDistance  = routeDistanceMeters(currentPath);
         const addedKm = Math.max(0, (detourDistance - primaryDistance) / 1000);
 
-        setRoutePath(detourPath);
-        setIntersectedZoneIds([...new Set(safeIntersections.map((item) => item.zone.id))]);
-        setStatusMessage(
-          `✅ SAFE ROUTE LOCKED: Bypassing ${firstHit.zone.name}. Total safety overhead: +${addedKm.toFixed(1)} km.`,
-        );
+        setRoutePath(currentPath);
+        setIntersectedZoneIds([...new Set(remainingHits.map((i) => i.zone.id))]);
+
+        if (!remainingHits.length) {
+          setStatusMessage(
+            `✅ SAFE ROUTE LOCKED: All blackspots bypassed. Safety overhead: +${addedKm.toFixed(1)} km.`
+          );
+        } else {
+          setStatusMessage(
+            `⚠️ PARTIAL DETOUR: ${remainingHits.length} zone(s) could not be fully avoided. Drive with caution near ${remainingHits[0].zone.name}.`
+          );
+        }
       } catch (err) {
         setRouteError(err?.message || "Failed to compute route.");
         setRoutePath([selectedOrigin, selectedDestination]);

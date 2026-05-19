@@ -86,6 +86,19 @@ export function useIncidents(collectionName = "accidents", { scoped = false } = 
         setLoading(false);
       },
       (err) => {
+        // If composite index is missing, fall back to unscoped query
+        if (scoped && err?.message?.includes("index")) {
+          console.warn("[useIncidents] Composite index missing — falling back to unscoped query. Create the index at Firebase Console.");
+          const fallbackQuery = query(collection(db, collectionName), orderBy("timestamp", "desc"));
+          onSnapshot(fallbackQuery, (snap) => {
+            setIncidents(snap.docs.map(mapIncident));
+            setLoading(false);
+          }, (e) => {
+            setError(e?.message || "Database connection failed.");
+            setLoading(false);
+          });
+          return;
+        }
         setError(err?.message || "Database connection failed.");
         setLoading(false);
       }

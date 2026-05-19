@@ -420,6 +420,83 @@ function SafetyLeaderboard({ data }) {
   );
 }
 
+// ─── Pure JS K-Means fallback (no backend needed) ────────────────────────────
+const DRIVER_DATA = [
+  { id: "DRV-001", avg_speed: 42,  hard_brakes: 1,  tailgating_s: 5   },
+  { id: "DRV-002", avg_speed: 95,  hard_brakes: 9,  tailgating_s: 120 },
+  { id: "DRV-003", avg_speed: 38,  hard_brakes: 0,  tailgating_s: 2   },
+  { id: "DRV-004", avg_speed: 110, hard_brakes: 14, tailgating_s: 200 },
+  { id: "DRV-005", avg_speed: 55,  hard_brakes: 3,  tailgating_s: 30  },
+  { id: "DRV-006", avg_speed: 88,  hard_brakes: 7,  tailgating_s: 90  },
+  { id: "DRV-007", avg_speed: 35,  hard_brakes: 0,  tailgating_s: 1   },
+  { id: "DRV-008", avg_speed: 72,  hard_brakes: 5,  tailgating_s: 60  },
+  { id: "DRV-009", avg_speed: 130, hard_brakes: 18, tailgating_s: 300 },
+  { id: "DRV-010", avg_speed: 45,  hard_brakes: 2,  tailgating_s: 10  },
+  { id: "DRV-011", avg_speed: 60,  hard_brakes: 4,  tailgating_s: 45  },
+  { id: "DRV-012", avg_speed: 105, hard_brakes: 12, tailgating_s: 180 },
+];
+
+function normalize(data) {
+  const keys = ["avg_speed", "hard_brakes", "tailgating_s"];
+  const mins = {}, maxs = {};
+  keys.forEach((k) => {
+    mins[k] = Math.min(...data.map((d) => d[k]));
+    maxs[k] = Math.max(...data.map((d) => d[k]));
+  });
+  return data.map((d) => ({
+    ...d,
+    _norm: keys.map((k) => maxs[k] === mins[k] ? 0 : (d[k] - mins[k]) / (maxs[k] - mins[k])),
+  }));
+}
+
+function euclidean(a, b) {
+  return Math.sqrt(a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0));
+}
+
+function runKMeans(data, k = 3, iterations = 50) {
+  const normed = normalize(data);
+  // Seed centroids deterministically
+  let centroids = [normed[0]._norm, normed[4]._norm, normed[8]._norm];
+
+  let labels = new Array(normed.length).fill(0);
+  for (let iter = 0; iter < iterations; iter++) {
+    labels = normed.map((d) => {
+      const dists = centroids.map((c) => euclidean(d._norm, c));
+      return dists.indexOf(Math.min(...dists));
+    });
+    centroids = Array.from({ length: k }, (_, ci) => {
+      const members = normed.filter((_, i) => labels[i] === ci);
+      if (!members.length) return centroids[ci];
+      return centroids[0].map((_, dim) => members.reduce((s, m) => s + m._norm[dim], 0) / members.length);
+    });
+  }
+
+  // Rank clusters by composite risk (speed*0.4 + brakes*3 + tailgating*0.05)
+  const clusterRisk = Array.from({ length: k }, (_, ci) => {
+    const members = data.filter((_, i) => labels[i] === ci);
+    if (!members.length) return 0;
+    const avg = (key) => members.reduce((s, m) => s + m[key], 0) / members.length;
+    return avg("avg_speed") * 0.4 + avg("hard_brakes") * 3 + avg("tailgating_s") * 0.05;
+  });
+  const riskOrder = [...clusterRisk].sort((a, b) => a - b);
+  const LABELS = ["Defensive", "Erratic", "Aggressive"];
+  const COLORS = { Defensive: "#22c55e", Erratic: "#f97316", Aggressive: "#ef4444" };
+
+  const clusterLabel = (ci) => LABELS[riskOrder.indexOf(clusterRisk[ci])];
+
+  const drivers = data.map((d, i) => ({
+    ...d,
+    cluster: labels[i],
+    risk_label: clusterLabel(labels[i]),
+    color: COLORS[clusterLabel(labels[i])],
+  }));
+
+  const distribution = {};
+  drivers.forEach((d) => { distribution[d.risk_label] = (distribution[d.risk_label] || 0) + 1; });
+
+  return { drivers, distribution };
+}
+
 // ─── Driver Risk Segmentation ─────────────────────────────────────────────────
 
 function ScatterTooltip({ active, payload }) {
@@ -438,29 +515,19 @@ function ScatterTooltip({ active, payload }) {
 }
 
 function DriverRiskSegmentation() {
-  const [data, setData]       = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-
-  useEffect(() => {
-    api.getFleetSegmentation()
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+  // Run K-Means locally — no backend dependency
+  const { drivers, distribution } = useMemo(() => runKMeans(DRIVER_DATA, 3), []);
 
   const byCluster = useMemo(() => {
-    if (!data?.drivers) return [];
     const groups = {};
-    for (const d of data.drivers) {
+    for (const d of drivers) {
       if (!groups[d.risk_label]) groups[d.risk_label] = { name: d.risk_label, color: d.color, points: [] };
       groups[d.risk_label].points.push(d);
     }
     return Object.values(groups);
-  }, [data]);
+  }, [drivers]);
 
-  const dist = data?.distribution ?? {};
-  const total = Object.values(dist).reduce((s, v) => s + v, 0) || 1;
+  const total = Object.values(distribution).reduce((s, v) => s + v, 0) || 1;
 
   return (
     <Card className="glass-card border-white/5 bg-slate-900/80 shadow-2xl overflow-hidden lg:col-span-3">
@@ -477,12 +544,12 @@ function DriverRiskSegmentation() {
           {/* Distribution summary chips */}
           <div className="flex gap-2 flex-wrap">
             {[
-              { label: "Defensive", color: "#22c55e", bg: "bg-green-500/10 border-green-500/30 text-green-400" },
-              { label: "Erratic",   color: "#f97316", bg: "bg-orange-500/10 border-orange-500/30 text-orange-400" },
-              { label: "Aggressive",color: "#ef4444", bg: "bg-red-500/10 border-red-500/30 text-red-400" },
+              { label: "Defensive", bg: "bg-green-500/10 border-green-500/30 text-green-400" },
+              { label: "Erratic",   bg: "bg-orange-500/10 border-orange-500/30 text-orange-400" },
+              { label: "Aggressive",bg: "bg-red-500/10 border-red-500/30 text-red-400" },
             ].map(({ label, bg }) => (
               <span key={label} className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border ${bg}`}>
-                {label}: {dist[label] ?? 0} ({Math.round(((dist[label] ?? 0) / total) * 100)}%)
+                {label}: {distribution[label] ?? 0} ({Math.round(((distribution[label] ?? 0) / total) * 100)}%)
               </span>
             ))}
           </div>
@@ -490,36 +557,24 @@ function DriverRiskSegmentation() {
       </CardHeader>
 
       <CardContent className="px-4 py-4 h-72">
-        {loading && (
-          <div className="flex h-full items-center justify-center text-zinc-500 text-sm">
-            Running K-Means segmentation...
-          </div>
-        )}
-        {error && (
-          <div className="flex h-full items-center justify-center text-red-400 text-sm font-mono">
-            {error}
-          </div>
-        )}
-        {!loading && !error && (
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
-              <XAxis dataKey="avg_speed" name="Avg Speed" unit=" km/h" stroke="#71717a" tick={{ fontSize: 10 }} label={{ value: "Avg Speed (km/h)", position: "insideBottom", offset: -4, fill: "#71717a", fontSize: 10 }} />
-              <YAxis dataKey="hard_brakes" name="Hard Brakes" stroke="#71717a" tick={{ fontSize: 10 }} label={{ value: "Hard Brakes", angle: -90, position: "insideLeft", fill: "#71717a", fontSize: 10 }} />
-              <ZAxis range={[60, 60]} />
-              <Tooltip content={<ScatterTooltip />} cursor={{ strokeDasharray: "3 3", stroke: "#ffffff20" }} />
-              <Legend wrapperStyle={{ fontSize: 11, color: "#a1a1aa", paddingTop: 8 }} />
-              {byCluster.map((group) => (
-                <Scatter
-                  key={group.name}
-                  name={group.name}
-                  data={group.points}
-                  fill={group.color}
-                  opacity={0.85}
-                />
-              ))}
-            </ScatterChart>
-          </ResponsiveContainer>
-        )}
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+            <XAxis dataKey="avg_speed" name="Avg Speed" unit=" km/h" stroke="#71717a" tick={{ fontSize: 10 }} label={{ value: "Avg Speed (km/h)", position: "insideBottom", offset: -4, fill: "#71717a", fontSize: 10 }} />
+            <YAxis dataKey="hard_brakes" name="Hard Brakes" stroke="#71717a" tick={{ fontSize: 10 }} label={{ value: "Hard Brakes", angle: -90, position: "insideLeft", fill: "#71717a", fontSize: 10 }} />
+            <ZAxis range={[60, 60]} />
+            <Tooltip content={<ScatterTooltip />} cursor={{ strokeDasharray: "3 3", stroke: "#ffffff20" }} />
+            <Legend wrapperStyle={{ fontSize: 11, color: "#a1a1aa", paddingTop: 8 }} />
+            {byCluster.map((group) => (
+              <Scatter
+                key={group.name}
+                name={group.name}
+                data={group.points}
+                fill={group.color}
+                opacity={0.85}
+              />
+            ))}
+          </ScatterChart>
+        </ResponsiveContainer>
       </CardContent>
     </Card>
   );
@@ -546,7 +601,7 @@ export default function BehaviorAnalytics() {
     setLoading(true);
     setError("");
 
-    const incidentsRef = collection(db, "incidents");
+    const incidentsRef = collection(db, "accidents");  // fixed: was "incidents"
     const unsubscribe = onSnapshot(
       incidentsRef,
       (snapshot) => {

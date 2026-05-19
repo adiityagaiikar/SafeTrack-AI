@@ -1,9 +1,33 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { MapContainer, TileLayer, CircleMarker, Circle, Tooltip, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, Circle, Polyline, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { Camera, Clock, Navigation, Zap, RefreshCw, Trash2, ChevronDown } from "lucide-react";
+import { Camera, Clock, Navigation, Zap, RefreshCw, Trash2, ChevronDown, Ambulance, MapPin, Timer } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useIncidents } from "@/hooks/useIncidents";
+
+// ─── Task 1: Haversine spatial math engine ────────────────────────────────────
+function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+const AMBULANCE_SPEED_KMH = 40;
+
+// ─── Task 2: Mock hospital database ──────────────────────────────────────────
+const MOCK_HOSPITALS = [
+  { id: 1, name: "KEM Hospital Mumbai",              lat: 18.9980, lng: 72.8400, type: "Trauma Centre" },
+  { id: 2, name: "Lokmanya Tilak Municipal Hospital", lat: 19.0400, lng: 72.8700, type: "General Hospital" },
+  { id: 3, name: "Hinduja Hospital Mahim",            lat: 19.0390, lng: 72.8430, type: "Multi-Specialty" },
+  { id: 4, name: "Nanavati Max Super Speciality",     lat: 19.1000, lng: 72.8360, type: "Super Speciality" },
+  { id: 5, name: "Fortis Hospital Mulund",            lat: 19.1720, lng: 72.9560, type: "Trauma Centre" },
+];
 
 // ─── Static camera nodes across India ────────────────────────────────────────
 const CAMERA_NODES = [
@@ -84,6 +108,9 @@ export default function LiveIncidentMap() {
   const prevCountRef = useRef(0);
   const [newIds, setNewIds] = useState(new Set());
 
+  // ── Task 3: Autonomous Golden Hour Dispatch state ─────────────────────────
+  const [dispatchData, setDispatchData] = useState(null); // { hospital, distKm, etaMin, crash }
+
   // Update last-updated timestamp when data changes
   useEffect(() => {
     if (rawIncidents.length > 0) {
@@ -102,6 +129,27 @@ export default function LiveIncidentMap() {
       }
     }
     prevCountRef.current = rawIncidents.length;
+  }, [rawIncidents]);
+
+  // ── Task 3: Auto-dispatch nearest hospital for latest critical incident ───
+  useEffect(() => {
+    const criticals = rawIncidents.filter(
+      (inc) => sevPercent(inc) > 80 && inc.lat && inc.lng
+    );
+    if (!criticals.length) { setDispatchData(null); return; }
+
+    const latest = criticals[0]; // most recent critical (sorted desc by timestamp)
+
+    let nearest = null;
+    let minDist = Infinity;
+    for (const hospital of MOCK_HOSPITALS) {
+      const dist = calculateHaversineDistance(latest.lat, latest.lng, hospital.lat, hospital.lng);
+      if (dist < minDist) { minDist = dist; nearest = hospital; }
+    }
+
+    if (!nearest) return;
+    const etaMin = Math.ceil((minDist / AMBULANCE_SPEED_KMH) * 60);
+    setDispatchData({ hospital: nearest, distKm: minDist.toFixed(1), etaMin, crash: latest });
   }, [rawIncidents]);
 
   // Map incidents with severity percentage
@@ -236,6 +284,39 @@ export default function LiveIncidentMap() {
             </CircleMarker>
           ))}
 
+          {/* Task 4: Rescue Vector — glowing dashed line from hospital to crash */}
+          {dispatchData && (
+            <>
+              {/* Hospital marker — blue */}
+              <CircleMarker
+                center={[dispatchData.hospital.lat, dispatchData.hospital.lng]}
+                radius={9}
+                pathOptions={{ color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.9, weight: 2 }}
+              >
+                <Tooltip direction="top" offset={[0, -10]} opacity={0.95}>
+                  <div className="text-xs font-bold">
+                    <p className="text-blue-500">🏥 {dispatchData.hospital.name}</p>
+                    <p className="text-zinc-400 font-normal">{dispatchData.hospital.type}</p>
+                  </div>
+                </Tooltip>
+              </CircleMarker>
+
+              {/* Rescue vector line */}
+              <Polyline
+                positions={[
+                  [dispatchData.hospital.lat, dispatchData.hospital.lng],
+                  [dispatchData.crash.lat,    dispatchData.crash.lng],
+                ]}
+                pathOptions={{
+                  color: "#3b82f6",
+                  weight: 3,
+                  opacity: 0.9,
+                  dashArray: "10 8",
+                }}
+              />
+            </>
+          )}
+
           {/* Dynamic Firebase incident markers */}
           {filtered.map((inc) => {
             if (!inc.lat || !inc.lng) return null;
@@ -267,6 +348,71 @@ export default function LiveIncidentMap() {
           })}
         </MapContainer>
 
+        {/* ── Task 5: Autonomous Rescue Dispatch overlay — top centre ── */}
+        {dispatchData && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1001] w-80">
+            <div className="rounded-2xl border border-blue-500/30 bg-slate-900/90 backdrop-blur-xl shadow-[0_0_40px_rgba(59,130,246,0.2)] overflow-hidden">
+              {/* Header */}
+              <div className="px-5 py-3 border-b border-blue-500/20 bg-blue-500/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.9)]" />
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-300">
+                    Autonomous Rescue Dispatch
+                  </span>
+                </div>
+                <button
+                  onClick={() => setDispatchData(null)}
+                  className="text-zinc-600 hover:text-zinc-300 text-xs transition-colors"
+                >✕</button>
+              </div>
+
+              {/* Body */}
+              <div className="px-5 py-4 space-y-3">
+                {/* Assigned facility */}
+                <div className="flex items-start gap-3">
+                  <div className="p-1.5 bg-blue-500/10 rounded-lg border border-blue-500/20 shrink-0 mt-0.5">
+                    <MapPin className="w-3.5 h-3.5 text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Assigned Facility</p>
+                    <p className="text-sm font-black text-white mt-0.5">{dispatchData.hospital.name}</p>
+                    <p className="text-[9px] text-zinc-500 font-mono">{dispatchData.hospital.type}</p>
+                  </div>
+                </div>
+
+                {/* Distance + ETA */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-white/5 bg-black/40 px-3 py-2.5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">Straight-Line Dist.</p>
+                    <p className="text-lg font-black text-blue-400 tabular-nums">{dispatchData.distKm} km</p>
+                  </div>
+                  <div className="rounded-xl border border-white/5 bg-black/40 px-3 py-2.5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">Est. Arrival</p>
+                    <div className="flex items-center gap-1.5">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                      </span>
+                      <p className="text-lg font-black text-blue-400 tabular-nums">{dispatchData.etaMin} min</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Crash reference */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/5 border border-red-500/20">
+                  <Zap className="w-3 h-3 text-red-400 shrink-0" />
+                  <p className="text-[9px] font-mono text-red-300 truncate">
+                    Responding to: {dispatchData.crash.location || dispatchData.crash.id?.slice(0, 8).toUpperCase()}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Legend — bottom left ── */}
         <div className="absolute bottom-5 left-5 rounded-xl border border-white/10 bg-slate-900/80 backdrop-blur-xl p-4 shadow-2xl z-[1000]">
           <p className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-3">Map Legend</p>
@@ -277,6 +423,7 @@ export default function LiveIncidentMap() {
               { color: "bg-amber-400",  shadow: "shadow-[0_0_6px_rgba(251,191,36,0.8)]",  label: "Moderate (50–80%)",      pulse: false },
               { color: "bg-red-500",    shadow: "shadow-[0_0_8px_rgba(239,68,68,0.9)]",   label: "Critical Collision (>80%)", pulse: true },
               { color: "bg-red-500/30", shadow: "",                                         label: "Danger Zone (Historical)", pulse: false, ring: true },
+              { color: "bg-blue-500",   shadow: "shadow-[0_0_6px_rgba(59,130,246,0.8)]",  label: "Assigned Hospital",        pulse: true  },
             ].map(({ color, shadow, label, pulse, ring }) => (
               <div key={label} className="flex items-center gap-2.5">
                 <span className={`relative flex h-2.5 w-2.5 ${!pulse ? "inline-flex" : ""}`}>
